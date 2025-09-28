@@ -1,0 +1,172 @@
+/* Sampling Application Styles */
+
+/* Excel-like table styling */
+.excel-table {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 14px;
+}
+
+.excel-table th {
+  background-color: #730202 !important;
+  color: white !important;
+  font-weight: bold !important;
+  text-align: center !important;
+  border: 1px solid #a63636 !important;
+  padding: 8px !important;
+  vertical-align: middle !important;
+  height: 40px !important;
+  line-height: 1.2 !important;
+}
+
+.excel-table td {
+  border: 1px solid #D9D9D9 !important;
+  padding: 6px 8px !important;
+  background-color: white !important;
+}
+
+.excel-table tr:hover td {
+  background-color: #fff1e6 !important;
+}
+
+.excel-table td:focus {
+  background-color: #fff1e6 !important;
+  border: 2px solid #f27304 !important;
+}
+
+/* Strata inputs container */
+.strata-inputs-container {
+  border: 2px solid #D9D9D9;
+  border-radius: 4px;
+  padding: 15px;
+  background-color: #FAFAFA;
+}
+
+.stratum-input-group {
+  background-color: white;
+  border: 1px solid #E0E0E0;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.stratum-input-group:hover {
+  border-color: #f27304;
+  box-shadow: 0 2px 6px rgba(242, 115, 4, 0.15);
+}
+
+.table-edit-hint {
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+  margin-top: 5px;
+}
+
+/* Compact layout for calculator */
+.card-body { 
+  padding: 0.75rem; 
+}
+
+.card-header { 
+  padding: 0.5rem 0.75rem; 
+}
+
+.form-group { 
+  margin-bottom: 0.5rem; 
+}
+
+label { 
+  margin-bottom: 0.25rem; 
+  font-size: 0.9rem; 
+}
+
+.form-control { 
+  padding: 0.25rem 0.5rem; 
+  height: auto; 
+}
+
+.mb-4 { 
+  margin-bottom: 0.9rem !important; 
+}
+
+h2 { 
+  margin-bottom: 0.5rem; 
+}
+
+.card { 
+  margin-bottom: 0.9rem; 
+}
+
+.row.g-2 > [class^='col-'], 
+.row.g-2 > [class*=' col-'] { 
+  padding-left: 6px; 
+  padding-right: 6px; 
+}
+
+/* Question panel styling */
+.question-panel {
+  padding: 20px;
+  border-radius: 8px;
+  background-color: #f8f9fa;
+  margin-bottom: 20px;
+}
+
+/* Progress bar styling */
+.progress {
+  height: 20px;
+  border-radius: 10px;
+}
+
+.progress-bar {
+  border-radius: 10px;
+}
+
+/* Button styling */
+.btn-lg {
+  min-width: 120px;
+}
+
+/* Card styling */
+.card {
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.card-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  border-radius: 8px 8px 0 0;
+}
+
+/* Form styling */
+.form-control:focus {
+  border-color: #2E86AB;
+  box-shadow: 0 0 0 0.2rem rgba(46, 134, 171, 0.25);
+}
+
+/* Alert styling */
+.alert {
+  border-radius: 6px;
+}
+
+/* Table styling */
+.table {
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .btn-lg {
+    min-width: 100px;
+    font-size: 0.9rem;
+  }
+  
+  .card-body {
+    padding: 0.5rem;
+  }
+  
+  .stratum-input-group {
+    padding: 8px;
+  }
+}

@@ -1,0 +1,91 @@
+# Sampling Application - Main Shiny App
+# Author: Sayed Farhad Nabizada
+# Date: September 2025
+# Description: This Shiny application provides tools, including a decision tree, sample size calculator, and sampling guidelines.
+
+# Load required libraries
+library(shiny)
+library(bslib)
+library(shinyjs)
+library(DT)
+library(plotly)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(readxl)
+library(writexl)
+library(openxlsx)
+library(rmarkdown)
+library(knitr)
+library(htmltools)
+
+
+# Source additional modules
+source("modules/decision_tree_module.R")
+source("modules/sample_calculator_module.R")
+source("modules/wiki_module.R")
+
+# Define UI
+ui <- page_navbar(
+  title = tags$span(
+    "ATR Sampling Tool",
+    style = "color: #730202; font-weight: 600;"
+  ),
+  theme = bs_theme(
+    version = 5,
+    primary = "#730202",
+    secondary = "#f27304",
+    success = "#f27304",
+    info = "#730202",
+    warning = "#f27304",
+    light = "#F8F9FA",
+    dark = "#212529",
+    bg = "#FFFFFF",
+    fg = "#212529",
+    "font-size-base" = "1rem"
+  ),
+  id = "main_navbar",
+  
+  # Navigation tabs
+  nav_panel(
+    "Decision Tree",
+    icon = icon("sitemap"),
+    decision_tree_ui("decision_tree")
+  ),
+  
+  nav_panel(
+    "Sample Calculator",
+    icon = icon("calculator"),
+    sample_calculator_ui("sample_calculator")
+  ),
+  
+  nav_panel(
+    "Sampling Guideline",
+    icon = icon("book"),
+    wiki_ui("wiki")
+  ),
+  # Note: Ensure each module appears once in the navbar
+)
+
+# Define server
+server <- function(input, output, session) {
+  
+  # Shared reactive value for Study Name
+  study_name <- reactiveVal("")
+  
+  # Initialize modules with shared study_name
+  decision_tree_server("decision_tree", study_name = study_name)
+  sample_calculator_server("sample_calculator", study_name = study_name)
+  wiki_server("wiki")
+  
+  # Initialize tooltips
+  shinyjs::runjs("
+    $(document).ready(function() {
+      $('[data-bs-toggle=\"tooltip\"]').tooltip();
+    });
+  ")
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)
+
