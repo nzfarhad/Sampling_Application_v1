@@ -194,37 +194,9 @@ sampling_generator_ui <- function(id) {
               div(
                 class = "row",
                 
-                # Sample Size Input
-                div(
-                  class = "col-md-3",
-                  numericInput(
-                    ns("sample_size"),
-                    "Sample Size",
-                    value = 100,
-                    min = 1,
-                    step = 1,
-                    width = "100%"
-                  ),
-                  p("Number of observations to sample", class = "text-muted small")
-                ),
-                
-                # Random Seed Input
-                div(
-                  class = "col-md-3",
-                  numericInput(
-                    ns("random_seed"),
-                    "Random Seed",
-                    value = 123456,
-                    min = 1,
-                    step = 1,
-                    width = "100%"
-                  ),
-                  p("Seed for reproducible results", class = "text-muted small")
-                ),
-                
                 # Sampling Method Selection
                 div(
-                  class = "col-md-6",
+                  class = "col-md-3",
                   selectInput(
                     ns("sampling_method"),
                     "Sampling Method",
@@ -239,6 +211,49 @@ sampling_generator_ui <- function(id) {
                     width = "100%"
                   ),
                   p("Choose the sampling method to use", class = "text-muted small")
+                ),
+                
+                # Sample Size Input
+                div(
+                  class = "col-md-3",
+                  numericInput(
+                    ns("sample_size"),
+                    "Sample Size",
+                    value = 100,
+                    min = 1,
+                    step = 1,
+                    width = "100%"
+                  ),
+                  p("Number of observations to sample", class = "text-muted small")
+                ),
+                
+                # Buffer Input
+                div(
+                  class = "col-md-3",
+                  numericInput(
+                    ns("buffer_percentage"),
+                    "Buffer (%)",
+                    value = 10,
+                    min = 0,
+                    max = 100,
+                    step = 1,
+                    width = "100%"
+                  ),
+                  p("Non-response rate adjustment", class = "text-muted small")
+                ),
+                
+                # Random Seed Input
+                div(
+                  class = "col-md-3",
+                  numericInput(
+                    ns("random_seed"),
+                    "Random Seed",
+                    value = 123456,
+                    min = 1,
+                    step = 1,
+                    width = "100%"
+                  ),
+                  p("Seed for reproducible results", class = "text-muted small")
                 )
               ),
               
@@ -326,7 +341,7 @@ sampling_generator_ui <- function(id) {
               class = "card",
               div(
                 class = "card-header",
-                h5("Sample Results", class = "mb-0")
+                h5(id = ns("results_header"), "Sample Results", class = "mb-0")
               ),
               div(
                 class = "card-body",
@@ -370,22 +385,22 @@ sampling_generator_ui <- function(id) {
                   div(
                     class = "col-md-3",
                     div(
-                      class = "card bg-warning text-white",
+                      class = "card bg-secondary text-white",
                       div(
                         class = "card-body text-center",
-                        h4(id = ns("method_result"), class = "mb-0"),
-                        p("Method", class = "mb-0")
+                        h4(id = ns("seed_result"), class = "mb-0"),
+                        p("Random Seed", class = "mb-0")
                       )
                     )
                   ),
                   div(
                     class = "col-md-3",
                     div(
-                      class = "card bg-secondary text-white",
+                      class = "card bg-dark text-white",
                       div(
                         class = "card-body text-center",
-                        h4(id = ns("seed_result"), class = "mb-0"),
-                        p("Random Seed", class = "mb-0")
+                        h4(id = ns("buffer_result"), class = "mb-0"),
+                        p("Buffer", class = "mb-0")
                       )
                     )
                   )
@@ -556,12 +571,17 @@ sampling_generator_server <- function(id) {
        
        data <- uploaded_data()
        sample_size <- input$sample_size
+       buffer_percentage <- input$buffer_percentage
        method <- input$sampling_method
        seed_value <- input$random_seed
        
-       # Validate sample size
-       if (sample_size > nrow(data)) {
-         showNotification("Sample size cannot be larger than population size!", type = "error")
+       # Calculate buffer and final sample size
+       buffer_amount <- round(sample_size * buffer_percentage / 100)
+       final_sample_size <- sample_size + buffer_amount
+       
+       # Validate final sample size
+       if (final_sample_size > nrow(data)) {
+         showNotification("Final sample size (including buffer) cannot be larger than population size!", type = "error")
          return()
        }
        
@@ -571,22 +591,22 @@ sampling_generator_server <- function(id) {
          
          if (method == "simple_random") {
            # Simple Random Sampling
-           sample_indices <- sample(1:nrow(data), size = sample_size, replace = FALSE)
+           sample_indices <- sample(1:nrow(data), size = final_sample_size, replace = FALSE)
            sample_data <- data[sample_indices, ]
            
          } else if (method == "systematic") {
            # Systematic Sampling
            N <- nrow(data)
-           k <- floor(N / sample_size)  # Sampling interval
+           k <- floor(N / final_sample_size)  # Sampling interval
            
            if (k < 1) {
-             showNotification("Sample size too large for systematic sampling!", type = "error")
+             showNotification("Final sample size too large for systematic sampling!", type = "error")
              return()
            }
            
            # Random start point
            start <- sample(1:k, 1)
-           sample_indices <- seq(start, N, by = k)[1:sample_size]
+           sample_indices <- seq(start, N, by = k)[1:final_sample_size]
            sample_data <- data[sample_indices, ]
            
          } else if (method %in% c("stratified", "cluster", "stratified_cluster")) {
@@ -594,20 +614,27 @@ sampling_generator_server <- function(id) {
            showNotification("This sampling method will be implemented in a future update.", type = "warning")
            return()
          }
-        
-        # Store the generated sample
-        generated_sample(sample_data)
+         
+         # Add sample type column to distinguish between main sample and buffer
+         sample_data$sample_type <- c(rep("Sample", sample_size), rep("Buffer", buffer_amount))
+         
+         # Reorder columns to put sample_type first
+         sample_data <- sample_data[, c("sample_type", setdiff(names(sample_data), "sample_type"))]
+         
+         # Store the generated sample
+         generated_sample(sample_data)
         
         # Show results section
         shinyjs::show("results_section")
         
         # Update summary cards
         shinyjs::runjs(paste0('
-          document.getElementById("', session$ns("sample_size_result"), '").textContent = "', nrow(sample_data), '";
+          document.getElementById("', session$ns("results_header"), '").textContent = "Sample Results - ', tools::toTitleCase(gsub("_", " ", method)), '";
+          document.getElementById("', session$ns("sample_size_result"), '").textContent = "', sample_size, '";
           document.getElementById("', session$ns("population_size_result"), '").textContent = "', nrow(data), '";
-          document.getElementById("', session$ns("sampling_fraction_result"), '").textContent = "', round(nrow(sample_data) / nrow(data) * 100, 2), '%";
-          document.getElementById("', session$ns("method_result"), '").textContent = "', tools::toTitleCase(gsub("_", " ", method)), '";
+          document.getElementById("', session$ns("sampling_fraction_result"), '").textContent = "', round(sample_size / nrow(data) * 100, 2), '%";
           document.getElementById("', session$ns("seed_result"), '").textContent = "', seed_value, '";
+          document.getElementById("', session$ns("buffer_result"), '").textContent = "', buffer_amount, ' (', buffer_percentage, '%)";
         '))
         
         showNotification("Sample generated successfully!", type = "message")
