@@ -23,6 +23,7 @@ library(htmltools)
 # Source additional modules
 source("modules/decision_tree_module.R")
 source("modules/sample_calculator_module.R")
+source("modules/sampling_generator_module.R")
 source("modules/wiki_module.R")
 
 # Define UI
@@ -60,6 +61,12 @@ ui <- page_navbar(
   ),
   
   nav_panel(
+    "Sample Generator",
+    icon = icon("random"),
+    sampling_generator_ui("sampling_generator")
+  ),
+  
+  nav_panel(
     "Sampling Guideline",
     icon = icon("book"),
     wiki_ui("wiki")
@@ -76,6 +83,7 @@ server <- function(input, output, session) {
   # Initialize modules with shared study_name
   decision_tree_server("decision_tree", study_name = study_name)
   sample_calculator_server("sample_calculator", study_name = study_name)
+  sampling_generator_server("sampling_generator")
   wiki_server("wiki")
   
   # Initialize tooltips
