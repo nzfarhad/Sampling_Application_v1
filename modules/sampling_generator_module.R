@@ -142,7 +142,7 @@ sampling_generator_ui <- function(id) {
         class = "row mb-4",
         div(
           class = "col-12",
-          h2("Sample Generator", class = "text-center mb-3"),
+          h2("Sample Generator (Under Development)", class = "text-center mb-3"),
           p("Upload your dataset and generate samples using various sampling methods.", 
             class = "text-center text-muted")
         )
@@ -336,30 +336,30 @@ sampling_generator_ui <- function(id) {
                   # Method 1: Population Units Approach
                   div(
                     id = ns("population_units_method"),
+                  div(
+                    class = "row",
                     div(
-                      class = "row",
-                      div(
-                        class = "col-md-6",
-                        selectInput(
-                          ns("cluster_variable"),
-                          "Cluster Variable",
-                          choices = c("Select a variable..." = ""),
-                          width = "100%"
-                        ),
-                        p("Select the variable that defines clusters", class = "text-muted small")
+                      class = "col-md-6",
+                      selectInput(
+                        ns("cluster_variable"),
+                        "Cluster Variable",
+                        choices = c("Select a variable..." = ""),
+                        width = "100%"
                       ),
-                      div(
-                        class = "col-md-6",
-                        numericInput(
-                          ns("cluster_size"),
-                          "Cluster Size",
-                          value = 10,
-                          min = 2,
-                          step = 1,
-                          width = "100%"
-                        ),
+                      p("Select the variable that defines clusters", class = "text-muted small")
+                    ),
+                    div(
+                      class = "col-md-6",
+                      numericInput(
+                        ns("cluster_size"),
+                        "Cluster Size",
+                        value = 10,
+                        min = 2,
+                        step = 1,
+                        width = "100%"
+                      ),
                         p("Average number of observations per cluster", class = "text-muted small")
-                      )
+                    )
                     ),
                     div(
                       class = "row mt-2",
@@ -367,7 +367,7 @@ sampling_generator_ui <- function(id) {
                         class = "col-md-12",
                         checkboxInput(
                           ns("use_pps"),
-                          "Use PPS Sampling (Population calculated from cluster counts)",
+                          "Use PPS Sampling",
                           value = TRUE,
                           width = "100%"
                         ),
@@ -626,9 +626,9 @@ createClusterSummary <- function(data, sample_data, method, cluster_method, clus
 sampling_generator_server <- function(id) {
   moduleServer(id, function(input, output, session) {
     
-  # Reactive values
-  uploaded_data <- reactiveVal(NULL)
-  generated_sample <- reactiveVal(NULL)
+    # Reactive values
+    uploaded_data <- reactiveVal(NULL)
+    generated_sample <- reactiveVal(NULL)
   cluster_summary <- reactiveVal(NULL)
     
     # Variable names modal
@@ -794,24 +794,12 @@ sampling_generator_server <- function(id) {
          set.seed(seed_value)
          
          if (method == "simple_random") {
-           # Simple Random Sampling
-           sample_indices <- sample(1:nrow(data), size = final_sample_size, replace = FALSE)
-           sample_data <- data[sample_indices, ]
+           # Simple Random Sampling using centralized function
+           sample_data <- simple_random_sampling(data, final_sample_size, seed_value)
            
          } else if (method == "systematic") {
-           # Systematic Sampling
-           N <- nrow(data)
-           k <- floor(N / final_sample_size)  # Sampling interval
-           
-           if (k < 1) {
-             showNotification("Final sample size too large for systematic sampling!", type = "error")
-             return()
-           }
-           
-           # Random start point
-           start <- sample(1:k, 1)
-           sample_indices <- seq(start, N, by = k)[1:final_sample_size]
-           sample_data <- data[sample_indices, ]
+           # Systematic Sampling using centralized function
+           sample_data <- systematic_sampling(data, final_sample_size, seed_value)
            
          } else if (method == "cluster") {
            # 2-Stage Cluster Sampling with two methods
@@ -822,88 +810,58 @@ sampling_generator_server <- function(id) {
              cluster_var <- input$cluster_variable
              cluster_size <- input$cluster_size
              use_pps <- input$use_pps
-             
+           
              if (cluster_var == "") {
                showNotification("Please select a cluster variable!", type = "error")
                return()
              }
              
-             # Calculate cluster populations (number of units per cluster)
-             cluster_summary <- aggregate(rep(1, nrow(data)), 
-                                        by = list(cluster = data[[cluster_var]]), 
-                                        FUN = sum)
-             names(cluster_summary) <- c("cluster", "cluster_population")
-             
-             # Calculate probabilities for PPS sampling
+             # Use the new PPS cluster sampling function for Method 1
              if (use_pps) {
-               total_population <- sum(cluster_summary$cluster_population)
-               cluster_summary$probability <- cluster_summary$cluster_population / total_population
-             } else {
-               # Equal probability sampling
-               cluster_summary$probability <- 1 / nrow(cluster_summary)
-             }
-             
-             n_clusters <- nrow(cluster_summary)
-             
-             # Calculate number of clusters to sample
-             n_clusters_to_sample <- ceiling(final_sample_size / cluster_size)
-             
-             if (n_clusters_to_sample > n_clusters) {
-               showNotification("Not enough clusters for the requested sample size!", type = "error")
-               return()
-             }
-             
-             # Stage 1: Sample clusters using PPS or equal probability
-             if (use_pps) {
-               # PPS sampling with replacement - clusters can be selected multiple times
-               sampled_clusters <- sample(cluster_summary$cluster, 
-                                        n_clusters_to_sample, 
-                                        replace = TRUE, 
-                                        prob = cluster_summary$probability)
-             } else {
-               # Equal probability sampling without replacement
-               sampled_clusters <- sample(cluster_summary$cluster, 
-                                        n_clusters_to_sample, 
-                                        replace = FALSE)
-             }
-             
-             # Stage 2: Sample units within each cluster
-             sample_data <- data.frame()
-             
-             # Count how many times each cluster was selected
-             cluster_counts <- table(sampled_clusters)
-             
-             for (cluster_name in names(cluster_counts)) {
-               cluster <- cluster_name
-               times_selected <- cluster_counts[cluster_name]
-               
-               cluster_data <- data[data[[cluster_var]] == cluster, ]
-               
-               # Skip if cluster has no data
-               if (nrow(cluster_data) == 0) next
-               
-               # Sample units for each time this cluster was selected
-               for (selection in 1:times_selected) {
-                 # Check if cluster has enough units for the specified cluster size
-                 if (nrow(cluster_data) >= cluster_size) {
-                   # Cluster has enough units - sample exactly cluster_size units
-                   cluster_sample_indices <- sample(1:nrow(cluster_data), cluster_size, replace = FALSE)
-                   cluster_sample <- cluster_data[cluster_sample_indices, ]
-                 } else {
-                   # Cluster has fewer units - sample all available units
-                   cluster_sample_indices <- sample(1:nrow(cluster_data), nrow(cluster_data), replace = FALSE)
-                   cluster_sample <- cluster_data[cluster_sample_indices, ]
-                 }
-                 
-                 # Only add if cluster_sample has data
-                 if (nrow(cluster_sample) > 0) {
-                   sample_data <- rbind(sample_data, cluster_sample)
-                 }
+               # Validate parameters before calling PPS function
+               if (is.null(cluster_var) || is.na(cluster_var) || cluster_var == "") {
+                 showNotification("Cluster variable is not properly selected!", type = "error")
+                 return()
                }
+               if (is.null(cluster_size) || is.na(cluster_size) || cluster_size <= 0) {
+                 showNotification("Cluster size must be a positive number!", type = "error")
+                 return()
+               }
+               if (is.null(final_sample_size) || is.na(final_sample_size) || final_sample_size <= 0) {
+                 showNotification("Sample size is invalid!", type = "error")
+                 return()
+               }
+               if (is.null(seed_value) || is.na(seed_value)) {
+                 seed_value <- 123456  # Default seed if not provided
+               }
+               
+               # Create MOS (Measure of Size) from cluster variable
+               data_with_mos <- create_mos_from_cluster(data, cluster_var)
+               
+               # Use the new PPS cluster sampling function
+               cluster_result <- cluster_sampling_pps_wr_total_size(
+                 data = data_with_mos,
+                 cluster_id = cluster_var,
+                 mos = "mos",
+                 sample_size = final_sample_size,
+                 n_units = cluster_size,
+                 seed = seed_value
+               )
+               
+               sample_data <- cluster_result$sampled_data
+             } else {
+               # Equal probability sampling without replacement using centralized function
+               sample_data <- equal_probability_cluster_sampling(
+                 data = data,
+                 cluster_id = cluster_var,
+                 sample_size = final_sample_size,
+                 n_units = cluster_size,
+                 seed = seed_value
+               )
              }
              
            } else if (cluster_method == "cluster_list") {
-             # Method 2: Sample from Cluster List
+             # Method 2: Sample from Cluster List using centralized function
              cluster_list_var <- input$cluster_list_variable
              cluster_pop_var <- input$cluster_population_variable
              cluster_size <- input$cluster_list_size
@@ -914,88 +872,16 @@ sampling_generator_server <- function(id) {
                return()
              }
              
-             # Create cluster list with populations
-             cluster_list <- data.frame(
-               cluster = unique(data[[cluster_list_var]]),
-               stringsAsFactors = FALSE
+             # Use the centralized cluster list sampling function
+             sample_data <- cluster_list_sampling(
+               data = data,
+               cluster_list_var = cluster_list_var,
+               cluster_pop_var = cluster_pop_var,
+               sample_size = final_sample_size,
+               n_units = cluster_size,
+               use_pps = use_pps,
+               seed = seed_value
              )
-             
-             # Get population for each cluster
-             cluster_populations <- aggregate(data[[cluster_pop_var]], 
-                                            by = list(cluster = data[[cluster_list_var]]), 
-                                            FUN = sum, na.rm = TRUE)
-             names(cluster_populations) <- c("cluster", "population")
-             
-             # Merge cluster list with populations
-             cluster_list <- merge(cluster_list, cluster_populations, by = "cluster", all.x = TRUE)
-             
-             # Calculate probabilities for PPS sampling
-             if (use_pps) {
-               total_population <- sum(cluster_list$population, na.rm = TRUE)
-               cluster_list$probability <- cluster_list$population / total_population
-             } else {
-               # Equal probability sampling
-               cluster_list$probability <- 1 / nrow(cluster_list)
-             }
-             
-             n_clusters <- nrow(cluster_list)
-             
-             # Calculate number of clusters to sample
-             n_clusters_to_sample <- ceiling(final_sample_size / cluster_size)
-             
-             if (n_clusters_to_sample > n_clusters) {
-               showNotification("Not enough clusters for the requested sample size!", type = "error")
-               return()
-             }
-             
-             # Stage 1: Sample clusters using PPS or equal probability
-             if (use_pps) {
-               # PPS sampling with replacement - clusters can be selected multiple times
-               sampled_clusters <- sample(cluster_list$cluster, 
-                                        n_clusters_to_sample, 
-                                        replace = TRUE, 
-                                        prob = cluster_list$probability)
-             } else {
-               # Equal probability sampling without replacement
-               sampled_clusters <- sample(cluster_list$cluster, 
-                                        n_clusters_to_sample, 
-                                        replace = FALSE)
-             }
-             
-             # Stage 2: Sample units within each cluster
-             sample_data <- data.frame()
-             
-             # Count how many times each cluster was selected
-             cluster_counts <- table(sampled_clusters)
-             
-             for (cluster_name in names(cluster_counts)) {
-               cluster <- cluster_name
-               times_selected <- cluster_counts[cluster_name]
-               
-               cluster_data <- data[data[[cluster_list_var]] == cluster, ]
-               
-               # Skip if cluster has no data
-               if (nrow(cluster_data) == 0) next
-               
-               # Sample units for each time this cluster was selected
-               for (selection in 1:times_selected) {
-                 # Check if cluster has enough units for the specified cluster size
-                 if (nrow(cluster_data) >= cluster_size) {
-                   # Cluster has enough units - sample exactly cluster_size units
-                   cluster_sample_indices <- sample(1:nrow(cluster_data), cluster_size, replace = FALSE)
-                   cluster_sample <- cluster_data[cluster_sample_indices, ]
-                 } else {
-                   # Cluster has fewer units - sample all available units
-                   cluster_sample_indices <- sample(1:nrow(cluster_data), nrow(cluster_data), replace = FALSE)
-                   cluster_sample <- cluster_data[cluster_sample_indices, ]
-                 }
-                 
-                 # Only add if cluster_sample has data
-                 if (nrow(cluster_sample) > 0) {
-                   sample_data <- rbind(sample_data, cluster_sample)
-                 }
-               }
-             }
            }
            
            # Remove any empty rows that might have been created
@@ -1035,7 +921,7 @@ sampling_generator_server <- function(id) {
          
          # Store the generated sample
          generated_sample(sample_data)
-         
+        
          # Create cluster summary for cluster sampling methods
          if (method %in% c("cluster_sampling", "stratified_cluster_sampling")) {
            cluster_summary_data <- createClusterSummary(data, sample_data, method, cluster_method, 

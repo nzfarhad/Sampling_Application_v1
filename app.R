@@ -26,6 +26,9 @@ source("modules/sample_calculator_module.R")
 source("modules/sampling_generator_module.R")
 source("modules/wiki_module.R")
 
+# Source sampling functions
+source("sampling_generation_functions.R")
+
 # Define UI
 ui <- page_navbar(
   title = tags$span(
