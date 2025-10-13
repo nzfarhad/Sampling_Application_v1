@@ -3,6 +3,9 @@
 # Date: September 2025
 # Description: This Shiny application provides tools, including a decision tree, sample size calculator, and sampling guidelines.
 
+# Set global options for file upload size limit (100MB)
+options(shiny.maxRequestSize = 100 * 1024 * 1024)
+
 # Load required libraries
 library(shiny)
 library(bslib)
