@@ -142,10 +142,10 @@ Measures similarity within clusters:
 ## Example Applications
 
 ### National Surveys
-- **Demographic Surveys**: Household surveys by region
-- **Health Surveys**: Disease prevalence by district
-- **Education Surveys**: Student performance by school
-- **Economic Surveys**: Business surveys by sector
+- **Demographic Surveys**: Household surveys
+- **Health Surveys**: Disease prevalence
+- **Education Surveys**: Student performance
+- **Economic Surveys**: Business surveys
 
 ### Research Studies
 - **Community Studies**: Neighborhood-based research

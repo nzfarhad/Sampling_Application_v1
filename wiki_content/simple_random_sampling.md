@@ -105,13 +105,12 @@ n_adjusted = n / (1 + (n-1)/N)
 
 ## Best Practices
 
-1. **Use Random Number Generators**: Avoid manual selection
+1. **Use Random Number Generators or a specialized software**: Avoid manual selection
 2. **Document Everything**: Keep detailed records
 3. **Plan for Non-Response**: Anticipate and address
 4. **Validate Results**: Check for unexpected patterns
 5. **Consider Alternatives**: Evaluate other sampling methods
-6. **Pilot Test**: Try the process on a small scale first
-7. **Quality Assurance**: Implement checks and balances
+6. **Quality Assurance**: Implement checks and balances
 
 ## Tools and Software
 

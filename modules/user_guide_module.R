@@ -276,10 +276,8 @@ user_guide_ui <- function(id) {
         p("Generate actual samples from your uploaded datasets using various sampling methods."),
         
         h3("Supported File Formats:"),
-        div(
-          class = "code-example",
-          "• CSV files (.csv)\n• Excel files (.xlsx, .xls)"
-        ),
+          p("CSV files (.csv)\n• Excel files (.xlsx, .xls)"),
+        
         
         h3("Sampling Methods Available:"),
         
@@ -419,8 +417,7 @@ user_guide_ui <- function(id) {
             tags$li("Always validate your input parameters"),
             tags$li("Use appropriate confidence levels and margins of error"),
             tags$li("Include buffer samples to account for non-response"),
-            tags$li("Document your sampling decisions and rationale"),
-            tags$li("Test your sampling approach with pilot data when possible")
+            tags$li("Document your sampling decisions and rationale")
           )
         ),
         
@@ -496,7 +493,7 @@ user_guide_ui <- function(id) {
         h3("Getting Help:"),
         div(
           class = "info-box",
-          "If you encounter issues not covered here, please contact the ATR team or refer to the Sampling Guideline for detailed methodology information."
+          "If you encounter issues not covered here, please contact the ATR Data management team or refer to the Sampling Guideline for detailed methodology information."
         )
       ),
       
@@ -505,7 +502,7 @@ user_guide_ui <- function(id) {
         class = "text-center mt-5 mb-4",
         style = "color: #6c757d;",
         p("ATR Sampling Tool - Comprehensive Sampling Solutions"),
-        p("For technical support or methodological questions, please contact the ATR team.")
+        p("For technical support or methodological questions, please contact the ATR Data Management team.")
       )
     )
   )
