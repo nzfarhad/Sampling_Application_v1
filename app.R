@@ -25,6 +25,7 @@ source("modules/decision_tree_module.R")
 source("modules/sample_calculator_module.R")
 source("modules/sampling_generator_module.R")
 source("modules/wiki_module.R")
+source("modules/user_guide_module.R")
 
 # Source sampling functions
 source("sampling_generation_functions.R")
@@ -51,6 +52,12 @@ ui <- page_navbar(
   id = "main_navbar",
   
   # Navigation tabs
+  nav_panel(
+    "How to Use",
+    icon = icon("question-circle"),
+    user_guide_ui("user_guide")
+  ),
+  
   nav_panel(
     "Decision Tree",
     icon = icon("sitemap"),
@@ -84,6 +91,7 @@ server <- function(input, output, session) {
   study_name <- reactiveVal("")
   
   # Initialize modules with shared study_name
+  user_guide_server("user_guide")
   decision_tree_server("decision_tree", study_name = study_name)
   sample_calculator_server("sample_calculator", study_name = study_name)
   sampling_generator_server("sampling_generator")
