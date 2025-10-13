@@ -457,7 +457,7 @@ user_guide_ui <- function(id) {
           tags$strong("Solutions:"),
           tags$ul(
             tags$li("Check file format (CSV or Excel only)"),
-            tags$li("Ensure file size is reasonable (< 50MB)"),
+             tags$li("Ensure file size is reasonable (< 100MB)"),
             tags$li("Verify file is not corrupted"),
             tags$li("Check column names don't contain special characters")
           )
