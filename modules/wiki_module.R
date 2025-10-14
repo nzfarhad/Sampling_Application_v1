@@ -465,6 +465,14 @@ wiki_server <- function(id) {
           category = "best_practices",
           description = "Ensuring sampling quality and validity"
         )
+      ),
+      "further_reading" = list(
+        "sampling_textbooks" = list(
+          title = "Resources",
+          content = "Resources.md",
+          category = "further_reading",
+          description = "Essential textbooks on sampling theory and practice"
+        )
       )
     )
     
@@ -505,7 +513,8 @@ wiki_server <- function(id) {
       sections <- list(
         "fundamentals" = "Fundamentals",
         "methods" = "Sampling Methods", 
-        "best_practices" = "Best Practices"
+        "best_practices" = "Best Practices",
+        "further_reading" = "Further Reading"
       )
       
       for (section_id in names(sections)) {
