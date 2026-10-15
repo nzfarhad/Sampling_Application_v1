@@ -39,3 +39,23 @@ test_that("wiki: every listed article exists and renders, including tables", {
   html <- markdown::markdownToHTML(file.path(root, "wiki_content", "replacement_protocol.md"), fragment.only = TRUE)
   expect_match(html, "<table", fixed = TRUE)
 })
+
+test_that("user guide: uses the wiki layout with its own articles", {
+  withr::local_dir(root)
+  source(file.path(root, "modules", "user_guide_module.R"))
+  testServer(user_guide_server, {
+    session$setInputs(search_input = "")
+    expect_equal(names(filtered_content())[1], "getting_started")
+    for (a in filtered_content()) expect_true(file.exists(file.path("guide_content", a$content)), info = a$content)
+    expect_match(as.character(output$content_area$html), "Typical Workflow", fixed = TRUE)
+    session$setInputs(toc_item = "troubleshooting")
+    expect_match(as.character(output$content_area$html), "30 MB", fixed = TRUE)
+    expect_match(as.character(output$breadcrumb_container$html), "Help", fixed = TRUE)
+    session$setInputs(search_input = "attrition")
+    expect_true("evaluation_calculator" %in% names(filtered_content()))
+  })
+  html <- paste(unlist(lapply(list.files(file.path(root, "guide_content"), full.names = TRUE), readLines,
+                             warn = FALSE, encoding = "UTF-8")), collapse = " ")
+  # No emoji or pictographs in the guide
+  expect_false(grepl("[\U0001F300-\U0001FAFF\U00002600-\U000027BF]", html, perl = TRUE))
+})

@@ -1315,7 +1315,7 @@ sample_calculator_server <- function(id, study_name = NULL) {
       results <- calculate_sample_size()
       DT::datatable(
         results$steps,
-        options = list(pageLength = 30, dom = 't', ordering = FALSE),
+        options = list(pageLength = 30, dom = 't', ordering = FALSE, scrollX = TRUE),
         rownames = FALSE
       ) %>%
         DT::formatStyle(1, fontWeight = 'bold')

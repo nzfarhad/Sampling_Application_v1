@@ -56,9 +56,11 @@ ui <- page_navbar(
     "font-size-base" = "1rem"
   ),
   id = "main_navbar",
+  # Not fillable: pages scroll normally and the footer sits below the content
+  fillable = FALSE,
   footer = div(
     class = "text-center text-muted small py-2 border-top",
-    paste("ATR Sampling Tool - version", app_version())
+    paste("ATR Sampling Tool - version", app_version(commit = FALSE))
   ),
   
   # Navigation tabs

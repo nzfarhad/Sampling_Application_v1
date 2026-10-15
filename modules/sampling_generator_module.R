@@ -650,7 +650,7 @@ sampling_generator_ui <- function(id) {
                 div(
                   class = "sample-results",
                   h6("Sample Preview", class = "mb-3"),
-                  DT::dataTableOutput(ns("sample_preview"), height = "400px")
+                  DT::dataTableOutput(ns("sample_preview"))
                 ),
                 
                 # Cluster Summary Table (for cluster sampling methods)
@@ -703,15 +703,17 @@ DESIGN_COLUMN_NOTES <- data.frame(
 
 REPLACEMENT_REASONS <- c("Insecure / inaccessible", "Refused", "Not found / moved", "Other")
 
-# App version from the VERSION file, plus the git commit when available
-app_version <- function() {
+# App version from the VERSION file, plus the git commit when available and
+# commit = TRUE (used in exports; the footer shows the version only)
+app_version <- function(commit = TRUE) {
   version <- if (file.exists("VERSION")) trimws(readLines("VERSION", warn = FALSE)[1]) else "unknown"
-  commit <- tryCatch(
+  if (!commit) return(version)
+  hash <- tryCatch(
     suppressWarnings(system2("git", c("rev-parse", "--short", "HEAD"), stdout = TRUE, stderr = FALSE)),
     error = function(e) character(0)
   )
-  if (length(commit) == 1 && nzchar(commit) && is.null(attr(commit, "status"))) {
-    paste0(version, " (commit ", commit, ")")
+  if (length(hash) == 1 && nzchar(hash) && is.null(attr(hash, "status"))) {
+    paste0(version, " (commit ", hash, ")")
   } else {
     version
   }
@@ -898,7 +900,8 @@ sampling_generator_server <- function(id, study_name = NULL) {
     observe({
       method <- input$sampling_method
       req(method)
-      shinyjs::show("conditional_inputs")
+      # Simple random sampling has no extra settings, so the panel would be empty
+      shinyjs::toggle("conditional_inputs", condition = method != "simple_random")
       shinyjs::toggle("strata_inputs", condition = method %in% c("stratified", "stratified_cluster"))
       shinyjs::toggle("cluster_inputs", condition = method %in% c("cluster", "stratified_cluster"))
       shinyjs::toggle("within_method_inputs", condition = method == "stratified")

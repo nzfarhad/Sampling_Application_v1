@@ -445,7 +445,7 @@ evaluation_calculator_server <- function(id, study_name = NULL) {
     })
 
     output$steps_table <- DT::renderDataTable({
-      DT::datatable(result()$steps, options = list(pageLength = 40, dom = 't', ordering = FALSE), rownames = FALSE) %>%
+      DT::datatable(result()$steps, options = list(pageLength = 40, dom = 't', ordering = FALSE, scrollX = TRUE), rownames = FALSE) %>%
         DT::formatStyle(1, fontWeight = 'bold')
     })
 
