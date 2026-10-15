@@ -1,0 +1,7 @@
+{
+  "name": "atr-sampling-ui-check",
+  "private": true,
+  "description": "Playwright UI check for the ATR Sampling Tool (uses the installed Microsoft Edge)",
+  "scripts": { "check": "node ui-check.mjs" },
+  "devDependencies": { "playwright": "1.48.2" }
+}

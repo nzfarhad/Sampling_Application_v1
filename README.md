@@ -60,6 +60,16 @@ testthat::test_dir("tests/testthat")
 
 The tests also need `testthat` and `withr`; the evaluation checks use `pwr` when it is installed. `tests/manual_check_wheat.R` runs every design on a local frame file that is not stored in git.
 
+**UI check (Playwright).** Clicks through every tab at desktop and phone width and checks the layout (footer position, overlaps, horizontal scrolling, errors). It needs Node.js and Microsoft Edge:
+
+```sh
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm --prefix tests/playwright install
+Rscript -e "shiny::runApp(port = 8787)"      # in a second terminal
+npm --prefix tests/playwright run check
+```
+
+Screenshots are saved to `tests/playwright/screenshots/`.
+
 ## Contributing
 
 - Put formulas and sampling logic in `sample_size_functions.R` or `sampling_generation_functions.R`, without Shiny code, and add tests for them.

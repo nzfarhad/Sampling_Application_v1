@@ -94,3 +94,7 @@ venv.bak/
 *.fdb_latexmk
 *.fls
 *.synctex.gz
+
+# Playwright UI check: installed packages and screenshots
+tests/playwright/node_modules/
+tests/playwright/screenshots/
