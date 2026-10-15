@@ -3,8 +3,8 @@
 # Date: September 2025
 # Description: This Shiny application provides tools, including a decision tree, sample size calculator, and sampling guidelines.
 
-# Set global options for file upload size limit (100MB)
-options(shiny.maxRequestSize = 100 * 1024 * 1024)
+# Upload size limit: 30 MB keeps a frame and its copies within shinyapps.io instance memory
+options(shiny.maxRequestSize = 30 * 1024 * 1024)
 
 # Load required libraries
 library(shiny)
@@ -12,7 +12,6 @@ library(bslib)
 library(shinyjs)
 library(DT)
 library(plotly)
-library(ggplot2)
 library(dplyr)
 library(readr)
 library(readxl)
@@ -21,17 +20,21 @@ library(openxlsx)
 library(rmarkdown)
 library(knitr)
 library(htmltools)
+library(stringr)
+library(markdown)
 
+
+# Source sampling and sample size functions (used by the modules when they load)
+source("sampling_generation_functions.R")
+source("sample_size_functions.R")
 
 # Source additional modules
 source("modules/decision_tree_module.R")
 source("modules/sample_calculator_module.R")
+source("modules/evaluation_calculator_module.R")
 source("modules/sampling_generator_module.R")
 source("modules/wiki_module.R")
 source("modules/user_guide_module.R")
-
-# Source sampling functions
-source("sampling_generation_functions.R")
 
 # Define UI
 ui <- page_navbar(
@@ -53,6 +56,10 @@ ui <- page_navbar(
     "font-size-base" = "1rem"
   ),
   id = "main_navbar",
+  footer = div(
+    class = "text-center text-muted small py-2 border-top",
+    paste("ATR Sampling Tool - version", app_version())
+  ),
   
   # Navigation tabs
   nav_panel(
@@ -71,6 +78,12 @@ ui <- page_navbar(
     "Sample Calculator",
     icon = icon("calculator"),
     sample_calculator_ui("sample_calculator")
+  ),
+
+  nav_panel(
+    "Evaluation Calculator",
+    icon = icon("chart-line"),
+    evaluation_calculator_ui("evaluation_calculator")
   ),
   
   nav_panel(
@@ -97,7 +110,8 @@ server <- function(input, output, session) {
   user_guide_server("user_guide")
   decision_tree_server("decision_tree", study_name = study_name)
   sample_calculator_server("sample_calculator", study_name = study_name)
-  sampling_generator_server("sampling_generator")
+  evaluation_calculator_server("evaluation_calculator", study_name = study_name)
+  sampling_generator_server("sampling_generator", study_name = study_name)
   wiki_server("wiki")
   
   # Initialize tooltips

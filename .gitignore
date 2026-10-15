@@ -34,11 +34,12 @@ Thumbs.db
 *.swp
 *.swo
 
-# Data files (uncomment if you want to exclude data)
-# *.csv
-# *.xlsx
-# *.xls
-# data/
+# Data files (frames may contain personal data; never commit them)
+*.csv
+*.xlsx
+*.xls
+data/
+resources_temp/
 
 # Output files
 output/
