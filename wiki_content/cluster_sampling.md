@@ -74,11 +74,6 @@ Cluster sampling is ideal when:
 
 ## Sample Size Calculation
 
-### Cluster-Level Calculation
-```
-n_clusters = n_units / average_cluster_size
-```
-
 ### Design Effect Consideration
 ```
 DEFF = 1 + (m - 1) × ICC
@@ -86,9 +81,17 @@ n_adjusted = n_simple × DEFF
 ```
 
 Where:
-- m = average cluster size
+- m = number of units interviewed per selected cluster (not the cluster's total size)
 - ICC = intraclass correlation coefficient
 - DEFF = design effect
+
+### Number of Clusters
+```
+n_clusters = ceiling(n_adjusted / m)
+n_final    = n_clusters × m
+```
+
+**Worked example:** n_simple = 384, m = 12, ICC = 0.06 gives DEFF = 1 + 11 × 0.06 = 1.66, so n_adjusted = 638. That needs ceiling(638 / 12) = 54 clusters, for a final sample of 54 × 12 = 648 interviews (before non-response). Entering the village size (e.g. 200 households) as m instead would give DEFF = 12.9 and a sample about eight times too large.
 
 ### Intraclass Correlation Coefficient (ICC)
 Measures similarity within clusters:

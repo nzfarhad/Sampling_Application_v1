@@ -118,3 +118,4 @@ Quality control is essential because:
 ## Conclusion
 
 Quality control in sampling is not an optional add-on but an essential component of any sampling activity. It requires systematic planning, continuous monitoring, and rigorous implementation throughout all phases of the sampling process.
+

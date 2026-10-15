@@ -148,252 +148,185 @@ user_guide_ui <- function(id) {
       div(
         class = "guide-section",
         h2("Quick Start Guide"),
-        p("Get started with the ATR Sampling Tool in just a few steps:"),
-        
-        div(
-          class = "step-card",
-          div(
-            class = "step-number", "1"
-          ),
-          tags$strong("Choose Your Approach:"),
-          "Start with the Decision Tree to get sampling method recommendations, or jump directly to the Sample Calculator or Sample Generator."
-        ),
-        
-        div(
-          class = "step-card",
-          div(
-            class = "step-number", "2"
-          ),
-          tags$strong("Calculate Sample Size:"),
-          "Use the Sample Calculator to determine the appropriate sample size for your study parameters."
-        ),
-        
-        div(
-          class = "step-card",
-          div(
-            class = "step-number", "3"
-          ),
-          tags$strong("Generate Your Sample:"),
-          "Upload your dataset and use the Sample Generator to create your actual sample."
-        ),
-        
-        div(
-          class = "step-card",
-          div(
-            class = "step-number", "4"
-          ),
-          tags$strong("Learn More:"),
-          "Refer to the Sampling Guideline for detailed information about different sampling methods."
-        )
+        p("Get started with the ATR Sampling Tool in a few steps:"),
+
+        div(class = "step-card", div(class = "step-number", "1"), tags$strong("Choose Your Approach: "),
+            "Start with the Decision Tree for a method recommendation, or go straight to a calculator or the Sample Generator."),
+        div(class = "step-card", div(class = "step-number", "2"), tags$strong("Calculate Sample Size: "),
+            "Use the Sample Calculator for monitoring surveys (a margin of error for a proportion or a mean), or the ",
+            "Evaluation Calculator to compare groups or survey rounds (power and minimum detectable difference)."),
+        div(class = "step-card", div(class = "step-number", "3"), tags$strong("Generate Your Sample: "),
+            "Upload your sampling frame and draw the sample with the Sample Generator. Check the frame report, then confirm the draw."),
+        div(class = "step-card", div(class = "step-number", "4"), tags$strong("Document and Field: "),
+            "Download the Excel file. It holds the sample with weights, a Methodology sheet and a Replacement Log for the field team."),
+
+        div(class = "warning-box",
+            tags$strong("Data protection: "),
+            "the app runs on a public cloud host. Upload anonymised frames only: no names, phone numbers or GPS points. ",
+            "Keep the full list offline and link it back through the unit ID.")
       ),
-      
+
       # Decision Tree Section
       div(
         class = "guide-section",
         h2("Decision Tree"),
-        p("The Decision Tree helps you choose the most appropriate sampling method based on your study characteristics."),
-        
+        p("The Decision Tree suggests sampling methods from six questions about your study."),
+
         h3("How to Use:"),
-        div(
-          class = "step-card",
-          tags$strong("1. Enter Study Information:"),
-          "Fill in the study name (optional) and answer questions about your survey mode, population characteristics, and study objectives."
-        ),
-        
-        div(
-          class = "step-card",
-          tags$strong("2. Review Recommendations:"),
-          "The tool will provide recommended sampling methods with explanations and considerations."
-        ),
-        
-        div(
-          class = "step-card",
-          tags$strong("3. Export Results:"),
-          "Download the decision tree results as a PDF report for your study documentation."
-        ),
-        
-        div(
-          class = "feature-highlight",
-          "💡 Tip: The Decision Tree provides indicative recommendations. Always consult with sampling experts for complex studies."
-        )
+        div(class = "step-card", tags$strong("1. Answer the questions: "),
+            "survey mode, whether results must be generalised, subgroup comparisons, what list (frame) you have, ",
+            "how many communities are involved and your main constraint."),
+        div(class = "step-card", tags$strong("2. Review the recommendation: "),
+            "each method comes with requirements, pros and cons. The yellow 'Points to consider' box lists caveats for ",
+            "your answers, for example a coverage warning for a partial frame, or the limits of random digit dialing in Afghanistan."),
+        div(class = "step-card", tags$strong("3. Export: "),
+            "download a PDF report of your answers and the recommended methods."),
+
+        div(class = "info-box",
+            tags$ul(
+              class = "mb-0",
+              tags$li("If results need not be generalised, only non-probability methods (purposive, quota) are suggested; snowball only for hidden groups with no list."),
+              tags$li("If you can visit every community, the tree suggests including all sites and sampling within each one.")
+            )),
+        div(class = "feature-highlight",
+            "Tip: the Decision Tree gives indicative recommendations. Consult a sampling specialist for complex studies.")
       ),
-      
+
       # Sample Calculator Section
       div(
         class = "guide-section",
-        h2("Sample Calculator"),
-        p("Calculate the required sample size for different sampling methods with various statistical parameters."),
-        
-        h3("Available Calculators:"),
-        
-        h3("Simple Random Sampling"),
-        div(
-          class = "step-card",
-          tags$strong("Parameters to Set:"),
-          tags$ul(
-            tags$li("Population size (N)"),
-            tags$li("Expected proportion (p) - default 0.5"),
-            tags$li("Confidence level - default 95%"),
-            tags$li("Margin of error - default 5%"),
-            tags$li("Non-response rate - default 5%")
-          )
-        ),
-        
-        h3("Stratified Sampling"),
-        div(
-          class = "step-card",
-          tags$strong("Additional Steps:"),
-          tags$ul(
-            tags$li("Define your strata"),
-            tags$li("Enter population size for each stratum"),
-            tags$li("Choose allocation method (proportional or equal)"),
-            tags$li("Set cluster parameters if using cluster sampling within strata")
-          )
-        ),
-        
+        h2("Sample Calculator (monitoring)"),
+        p("Sample size for estimating an indicator with a given margin of error, for one survey round."),
+
+        h3("Common Parameters"),
+        div(class = "step-card",
+            tags$ul(
+              tags$li(tags$strong("Key indicator: "), "a proportion (e.g. % of households that received aid) or a mean (e.g. income, yield)."),
+              tags$li(tags$strong("Proportion: "), "expected proportion p (0.5 is the safe default) and the margin of error (0.05 = ±5 points)."),
+              tags$li(tags$strong("Mean: "), "the standard deviation σ (from an earlier survey, or (max - min) / 4 as a rough guess) and the margin of error in the indicator's units."),
+              tags$li("Population size (N), confidence level (default 95%) and non-response rate (default 5%).")
+            )),
+
         h3("Cluster Sampling"),
-        div(
-          class = "step-card",
-          tags$strong("Key Parameters:"),
-          tags$ul(
-            tags$li("Cluster size (average number of units per cluster)"),
-            tags$li("Intra-cluster correlation coefficient (ICC) - default 0.06"),
-            tags$li("Design effect calculation"),
-            tags$li("Non-response adjustment")
-          )
-        ),
-        
-        div(
-          class = "info-box",
-          "The calculator automatically adjusts for finite population correction and design effects where applicable."
-        )
+        div(class = "step-card",
+            tags$ul(
+              tags$li(tags$strong("Interviews per cluster (m): "), "the number of units you will interview in each selected cluster, not the cluster's total size."),
+              tags$li(tags$strong("ICC: "), "how alike units in the same cluster are (default 0.06). The design effect is 1 + (m - 1) × ICC."),
+              tags$li("The result is rounded up to whole clusters of m interviews.")
+            )),
+
+        h3("Stratified Sampling"),
+        div(class = "step-card",
+            tags$ul(
+              tags$li("Enter strata by hand (name, population and, optionally, an expected p or σ per stratum), or upload a file and pick the strata and population columns."),
+              tags$li(tags$strong("Precision target - Each stratum: "), "every stratum reaches the margin of error on its own. Use it when you will report each stratum separately. Totals add up and are larger."),
+              tags$li(tags$strong("Precision target - Whole population only: "), "one sample sized for the overall estimate, split across strata by proportional, Neyman (optimal) or equal allocation, with an optional minimum per stratum. Cheaper, but single strata are less precise."),
+              tags$li("The breakdown table shows each stratum's sample, clusters and expected margin of error.")
+            )),
+
+        div(class = "info-box",
+            "The calculator applies the design effect, then the finite population correction, then the non-response adjustment. ",
+            "The Detailed Calculations table shows every step; the Excel and PDF downloads contain the same table.")
       ),
-      
+
+      # Evaluation Calculator Section
+      div(
+        class = "guide-section",
+        h2("Evaluation Calculator"),
+        p("Sample size, or the smallest detectable difference, when comparing a proportion between groups or survey rounds."),
+
+        h3("Designs"),
+        div(class = "step-card",
+            tags$ul(
+              tags$li(tags$strong("Two independent groups: "), "treatment vs control at one time, or baseline vs endline with a new sample each round."),
+              tags$li(tags$strong("Panel: "), "the same households at baseline and endline. Set the baseline-endline correlation (ρ; use 0 if unknown) and the expected attrition."),
+              tags$li(tags$strong("Difference-in-differences: "), "treatment and control areas at baseline and endline, as repeated cross-sections or as a panel. Enter both baselines and the change expected without the programme.")
+            )),
+
+        h3("What to Enter"),
+        div(class = "step-card",
+            tags$ul(
+              tags$li("Power (default 80%), significance level (default 5%) and a one- or two-sided test."),
+              tags$li("The baseline proportion and the detectable difference D (default 0.10 = 10 percentage points), as an increase or a decrease; or type the second proportion directly."),
+              tags$li("Response rate, and for clustered samples the interviews per cluster (m) and ICC."),
+              tags$li("Allocation ratio, if one group should be larger (e.g. 2 control households per treatment household).")
+            )),
+
+        h3("Two Modes"),
+        div(class = "step-card",
+            tags$ul(
+              tags$li(tags$strong("Sample size: "), "the sample per group, clusters per group and total interviews needed."),
+              tags$li(tags$strong("Minimum detectable difference (MDE): "), "enter the clusters (or interviews) per group your budget allows, and see the smallest difference you can detect.")
+            )),
+
+        div(class = "info-box",
+            "The power curve shows how power changes with the sample (or with the true difference in MDE mode). ",
+            "Download the Excel file for the full calculation, the group table and the curve.")
+      ),
+
       # Sample Generator Section
       div(
         class = "guide-section",
         h2("Sample Generator"),
-        p("Generate actual samples from your uploaded datasets using various sampling methods."),
-        
-        h3("Supported File Formats:"),
-          p("CSV files (.csv)\n• Excel files (.xlsx, .xls)"),
-        
-        
-        h3("Sampling Methods Available:"),
-        
-        h3("Simple Random Sampling"),
-        div(
-          class = "step-card",
-          tags$strong("Process:"),
-          tags$ul(
-            tags$li("Upload your dataset"),
-            tags$li("Set sample size and buffer percentage"),
-            tags$li("Choose random seed for reproducibility"),
-            tags$li("Generate and download your sample")
-          )
-        ),
-        
-        h3("Systematic Sampling"),
-        div(
-          class = "step-card",
-          tags$strong("Process:"),
-          tags$ul(
-            tags$li("Upload your dataset"),
-            tags$li("Set sample size and buffer percentage"),
-            tags$li("The tool calculates sampling interval automatically"),
-            tags$li("Generates systematic sample with random start")
-          )
-        ),
-        
-        h3("Cluster Sampling"),
-        div(
-          class = "step-card",
-          tags$strong("Method 1 - Population Units:"),
-          tags$ul(
-            tags$li("Select cluster variable (e.g., village, district)"),
-            tags$li("Choose cluster size (units per cluster)"),
-            tags$li("Select PPS (Probability Proportional to Size) or equal probability"),
-            tags$li("Generate sample with automatic MOS calculation")
-          )
-        ),
-        
-        div(
-          class = "step-card",
-          tags$strong("Method 2 - Cluster List:"),
-          tags$ul(
-            tags$li("Select cluster list variable"),
-            tags$li("Select population variable for each cluster"),
-            tags$li("Choose cluster size and sampling method"),
-            tags$li("Generate sample based on cluster populations")
-          )
-        ),
-        
-        div(
-          class = "warning-box",
-          "⚠️ Important: Ensure your dataset has the required variables for cluster sampling. The tool will validate your selections."
-        ),
-        
-        h3("Sample Output Features:"),
-        div(
-          class = "feature-highlight",
-          tags$ul(
-            tags$li("📊 Summary statistics (sample size, population size, sampling fraction)"),
-            tags$li("📋 Sample preview with data table"),
-            tags$li("💾 Download options (CSV and Excel formats)"),
-            tags$li("🏷️ Sample type labeling (Sample vs Buffer)")
-          )
-        )
+        p("Draws the sample from your uploaded frame (CSV or Excel) and documents how it was drawn."),
+
+        h3("Basic Settings"),
+        div(class = "step-card",
+            tags$ul(
+              tags$li(tags$strong("Sample size: "), "the main sample (the total across strata for stratified designs)."),
+              tags$li(tags$strong("Buffer (%): "), "reserve units for replacements, drawn separately and numbered in the order they should be used (reserve_order)."),
+              tags$li(tags$strong("Random seed: "), "makes the draw reproducible. If left blank, a random seed is chosen and recorded."),
+              tags$li(tags$strong("Unit ID variable: "), "used to check for duplicate units and to fill the replacement log.")
+            )),
+
+        h3("Methods"),
+        div(class = "step-card",
+            tags$ul(
+              tags$li(tags$strong("Simple random: "), "every unit has the same chance."),
+              tags$li(tags$strong("Systematic: "), "a random start and a fixed (fractional) interval; sort the list by a variable such as district to spread the sample."),
+              tags$li(tags$strong("Cluster: "), "select clusters (e.g. villages), with probability proportional to size (PPS) or equal probability, then m units within each. ",
+                      "Use 'population units' when the file lists every unit, or 'cluster list' when it lists clusters with a population column."),
+              tags$li(tags$strong("Stratified: "), "choose the strata variable and the allocation (proportional, equal, Neyman or manual) with an optional minimum per stratum. ",
+                      "The allocation preview shows the split; for Neyman or manual, double-click the Input column to edit it. Units are selected by simple random or systematic sampling within each stratum."),
+              tags$li(tags$strong("Stratified cluster: "), "the cluster method runs separately in each stratum, each with its own seed derived from the master seed.")
+            )),
+
+        h3("Frame Checks"),
+        div(class = "step-card",
+            "Clicking Generate first shows a frame report: duplicate or missing IDs, rows with no stratum or cluster ",
+            "(excluded and counted), clusters with no size, clusters smaller than m, and village names repeated across strata. ",
+            "Errors block the draw; otherwise review the report and click 'Confirm and Draw Sample'."),
+
+        h3("Outputs"),
+        div(class = "feature-highlight",
+            tags$ul(
+              tags$li("Design columns at the start of the sample: sample_type, reserve_order, stratum, cluster_id, selection probabilities (p_stage1, p_stage2, p_incl) and base_weight. Weights add up to the frame size."),
+              tags$li("Excel sheets: Sample, Methodology (settings, seed, exclusions, warnings, version), Allocation, Cluster Summary, Frame Checks, Column Guide and Replacement Log."),
+              tags$li("CSV download of the sample, and a cluster summary for cluster designs.")
+            )),
+
+        div(class = "warning-box",
+            "Important: if many clusters have fewer units than m, the sample falls short. The frame check warns about this; ",
+            "reduce m or merge small neighbouring clusters before drawing.")
       ),
-      
+
       # Sampling Guideline Section
       div(
         class = "guide-section",
         h2("Sampling Guideline"),
-        p("Comprehensive knowledge base covering sampling theory, methodologies, and best practices."),
-        
+        p("A knowledge base on sampling methods and practice. The search box looks through the full text of every article."),
+
         h3("Available Topics:"),
-        div(
-          class = "step-card",
-          tags$strong("Sampling Introduction:"),
-          "Basic concepts, terminology, and principles of sampling"
-        ),
-        
-        div(
-          class = "step-card",
-          tags$strong("Probability Sampling Methods:"),
-          "Overview of different probability sampling techniques"
-        ),
-        
-        div(
-          class = "step-card",
-          tags$strong("Simple Random Sampling:"),
-          "Detailed guide to simple random sampling methodology"
-        ),
-        
-        div(
-          class = "step-card",
-          tags$strong("Stratified Sampling:"),
-          "Comprehensive guide to stratified sampling design and implementation"
-        ),
-        
-        div(
-          class = "step-card",
-          tags$strong("Cluster Sampling:"),
-          "In-depth coverage of cluster sampling methods and considerations"
-        ),
-        
-        div(
-          class = "step-card",
-          tags$strong("Sampling in Fragile Contexts:"),
-          "Special considerations for sampling in challenging environments"
-        ),
-        
-        div(
-          class = "info-box",
-          "📖 Use the sidebar navigation to quickly jump between topics. Each section includes examples and practical guidance."
-        )
+        div(class = "step-card", tags$strong("Fundamentals: "), "introduction to sampling; probability vs non-probability sampling."),
+        div(class = "step-card", tags$strong("Methods: "), "simple random, stratified, cluster and systematic sampling."),
+        div(class = "step-card", tags$strong("Best practice: "), "quality control in sampling."),
+        div(class = "step-card", tags$strong("Field guidance: "), "site and sub-project verification, phone and remote monitoring, and the replacement protocol."),
+        div(class = "step-card", tags$strong("Resources: "), "recommended books, online resources and field data collection tools."),
+
+        div(class = "info-box",
+            "Use the sidebar to move between topics. Each article includes examples and practical guidance.")
       ),
-      
+
       # Best Practices Section
       div(
         class = "guide-section",
@@ -454,7 +387,7 @@ user_guide_ui <- function(id) {
           tags$strong("Solutions:"),
           tags$ul(
             tags$li("Check file format (CSV or Excel only)"),
-             tags$li("Ensure file size is reasonable (< 100MB)"),
+             tags$li("Keep the file under 30 MB: drop columns you do not need for sampling, or save as CSV"),
             tags$li("Verify file is not corrupted"),
             tags$li("Check column names don't contain special characters")
           )

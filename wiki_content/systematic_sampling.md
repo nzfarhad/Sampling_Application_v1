@@ -9,7 +9,7 @@ Systematic sampling is a probability sampling method where units are selected at
 - **Regular Intervals**: Units are selected at fixed intervals (every kth unit)
 - **Random Start**: The starting point is randomly selected
 - **Probability Sampling**: Every unit has a known probability of selection
-- **Efficient**: Often more efficient than simple random sampling
+- **Implicit stratification**: More precise than simple random sampling when the list is sorted by a variable related to the indicator (e.g. district, village)
 - **Easy Implementation**: Simple to execute in the field
 
 ## When to Use
@@ -26,7 +26,7 @@ Systematic sampling is ideal when:
 ## Advantages
 
 1. **Simplicity**: Easy to understand and implement
-2. **Efficiency**: Often more efficient than simple random sampling
+2. **Implicit stratification**: More precise than simple random sampling when the list is ordered by a related variable; about the same when the order is random
 3. **Even Distribution**: Spreads sample across the entire population
 4. **Cost-Effective**: Reduces travel costs between sampling units
 5. **Field-Friendly**: Easy to execute in remote or difficult areas
@@ -68,14 +68,14 @@ Where:
 
 **Population**: 1,000 households in a village
 **Desired Sample**: 100 households
-**Sampling Interval**: k = 1,000 / 100 = 10
+**Sampling Interval**: k = 1,000 / 100 = 10 (when N/n is not a whole number, keep the fraction, e.g. k = 1,003 / 100 = 10.03, and round each selection point up)
 **Random Start**: Randomly select between 1-10 (e.g., 7)
 **Selected Units**: 7, 17, 27, 37, 47, ..., 997
 
 ## Statistical Considerations
 
 ### Variance Estimation
-Systematic sampling variance is often smaller than simple random sampling variance, making it more efficient.
+When the list is sorted by a variable related to the indicator (for example by district, then village), systematic sampling acts like proportional stratification and its variance is smaller than for simple random sampling. When the list order is unrelated to the indicator, the variance is about the same. There is no exact variance formula for a single systematic sample, so the simple random sampling formula is normally used, which is conservative for a sorted list.
 
 ### Design Effect
 The design effect for systematic sampling is typically close to 1, indicating efficiency similar to simple random sampling.
@@ -128,7 +128,7 @@ Standard statistical formulas can be used, but consider the systematic nature of
 ## Comparison with Other Methods
 
 ### vs. Simple Random Sampling
-- **Advantage**: More efficient, easier implementation
+- **Advantage**: Easier implementation; more precise when the list is sorted by a related variable
 - **Disadvantage**: Less random, potential for bias
 
 ### vs. Stratified Sampling
@@ -136,8 +136,8 @@ Standard statistical formulas can be used, but consider the systematic nature of
 - **Disadvantage**: Less control over subgroup representation
 
 ### vs. Cluster Sampling
-- **Advantage**: More efficient for dispersed populations
-- **Disadvantage**: Less efficient for clustered populations
+- **Advantage**: More precise for the same number of interviews, since there is no clustering design effect
+- **Disadvantage**: Costlier when the population is spread over many distant villages
 
 ## Applications
 
@@ -165,14 +165,12 @@ systematic_sampling <- function(population, sample_size, seed = NULL) {
   if (!is.null(seed)) set.seed(seed)
   
   N <- length(population)
-  k <- floor(N / sample_size)
-  
-  if (k < 1) {
-    stop("Sample size too large for systematic sampling")
-  }
-  
-  start <- sample(1:k, 1)
-  sample_indices <- seq(start, N, by = k)[1:sample_size]
+  if (sample_size > N) stop("Sample size too large for systematic sampling")
+
+  # Keep the fractional interval so every unit has probability n/N
+  k <- N / sample_size
+  start <- runif(1, 0, k)
+  sample_indices <- ceiling(start + k * (0:(sample_size - 1)))
   
   return(population[sample_indices])
 }
@@ -180,11 +178,12 @@ systematic_sampling <- function(population, sample_size, seed = NULL) {
 
 ### Excel Implementation
 1. List population in column A
-2. Calculate k = COUNT(A:A) / sample_size
-3. Generate random start = RANDBETWEEN(1, k)
-4. Select every kth row starting from random start
+2. Calculate k = COUNT(A:A) / sample_size (keep the decimals)
+3. Generate a random start r = RAND() * k
+4. Select rows ROUNDUP(r + k × (i - 1), 0) for i = 1 to n
 
 ## Conclusion
 
 Systematic sampling is a valuable tool in the sampling toolkit, offering efficiency and simplicity while maintaining probability sampling properties. When implemented correctly with proper frame preparation and quality control, it can provide reliable and cost-effective sampling solutions for many research contexts.
+
 

@@ -7,7 +7,7 @@ Stratified sampling divides the population into homogeneous subgroups (strata) a
 ## Key Characteristics
 
 - **Population Division**: Population split into non-overlapping strata
-- **Proportional Representation**: Each stratum represented in sample
+- **Every Stratum Represented**: Each stratum gets its own sample (proportional or not)
 - **Homogeneous Strata**: Units within strata are similar
 - **Heterogeneous Between Strata**: Strata differ from each other
 - **Independent Sampling**: Random selection within each stratum
@@ -30,10 +30,10 @@ Stratified sampling is ideal when:
 - Each stratum contributes proportionally to total sample
 - Maintains population structure in sample
 
-### 2. Equal Size Stratified Sampling
-- Equal sample sizes from each stratum
-- Useful when strata are similar in size
-- Provides equal precision across strata
+### 2. Equal Allocation
+- The same sample size in every stratum, whatever its population
+- Useful when each stratum needs its own estimate (e.g. one per province), including small strata
+- Gives roughly equal precision per stratum, but needs weights for the overall estimate, which is then less precise than with proportional allocation
 
 ### 3. Optimal Stratified Sampling
 - Sample allocation based on stratum variance
@@ -53,9 +53,8 @@ Stratified sampling is ideal when:
 1. **Complexity**: More complex than simple random sampling
 2. **Stratum Definition**: Requires clear stratum boundaries
 3. **Sampling Frame**: Needs stratum information for all units
-4. **Cost**: May be more expensive to implement
-5. **Analysis Complexity**: Requires specialized statistical methods
-6. **Stratum Size**: Small strata may limit analysis
+4. **Analysis Complexity**: Needs weights when allocation is not proportional
+5. **Stratum Size**: Small strata may limit analysis
 
 ## Implementation Steps
 
@@ -77,6 +76,8 @@ n_i = (N_i / N) × n
 ```
 n_i = n / k
 ```
+
+Every stratum gets the same sample size regardless of its population. The overall estimate must then be weighted by N_i / N.
 
 ### Optimal Allocation
 ```
@@ -170,12 +171,12 @@ Where:
 ### vs. Simple Random Sampling
 - **Precision**: Generally more precise
 - **Complexity**: More complex to implement
-- **Cost**: Often more expensive
-- **Analysis**: Requires specialized methods
+- **Cost**: About the same per interview when strata are geographic; a larger total sample only if every stratum needs its own precision
+- **Analysis**: Requires weights unless allocation is proportional
 
 ### vs. Cluster Sampling
-- **Precision**: Usually more precise
-- **Cost**: Often more expensive
+- **Precision**: Usually more precise for the same number of interviews
+- **Cost**: Higher travel cost per interview, because units are spread out
 - **Implementation**: More complex
 - **Geographic Spread**: Better distribution
 

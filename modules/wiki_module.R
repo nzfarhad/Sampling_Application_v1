@@ -466,12 +466,32 @@ wiki_server <- function(id) {
           description = "Ensuring sampling quality and validity"
         )
       ),
+      "field_guidance" = list(
+        "site_verification" = list(
+          title = "Site and Sub-Project Verification",
+          content = "site_verification_sampling.md",
+          category = "field_guidance",
+          description = "Census or sample of sites, frames from client lists, back-checks"
+        ),
+        "phone_monitoring" = list(
+          title = "Phone and Remote Monitoring",
+          content = "phone_remote_monitoring.md",
+          category = "field_guidance",
+          description = "Beneficiary-list frames, call rules, coverage bias, female respondents"
+        ),
+        "replacement_protocol" = list(
+          title = "Replacement Protocol",
+          content = "replacement_protocol.md",
+          category = "field_guidance",
+          description = "When and how to replace units, and the Replacement Log"
+        )
+      ),
       "further_reading" = list(
         "sampling_textbooks" = list(
           title = "Resources",
           content = "Resources.md",
           category = "further_reading",
-          description = "Essential textbooks on sampling theory and practice"
+          description = "Books, online resources and field data collection tools"
         )
       )
     )
@@ -480,7 +500,13 @@ wiki_server <- function(id) {
     flat_content <- list()
     for (category in names(wiki_content)) {
       for (article_id in names(wiki_content[[category]])) {
-        flat_content[[article_id]] <- wiki_content[[category]][[article_id]]
+        article <- wiki_content[[category]][[article_id]]
+        # Article text, lower case, for the search box
+        md_file <- file.path("wiki_content", article$content)
+        article$search_text <- if (file.exists(md_file)) {
+          tolower(paste(readLines(md_file, warn = FALSE, encoding = "UTF-8"), collapse = " "))
+        } else ""
+        flat_content[[article_id]] <- article
       }
     }
     
@@ -494,9 +520,12 @@ wiki_server <- function(id) {
       # Filter by search term
       if (!is.null(input$search_input) && input$search_input != "") {
         search_term <- tolower(input$search_input)
-        content <- content[sapply(content, function(x) 
-          grepl(search_term, tolower(x$title)) || 
-          grepl(search_term, tolower(x$description)))]
+        # Match the title, the description or the article text (fixed string, not a regex)
+        content <- content[vapply(content, function(x) {
+          grepl(search_term, tolower(x$title), fixed = TRUE) ||
+            grepl(search_term, tolower(x$description), fixed = TRUE) ||
+            grepl(search_term, x$search_text, fixed = TRUE)
+        }, logical(1))]
       }
       
       return(content)
@@ -514,6 +543,7 @@ wiki_server <- function(id) {
         "fundamentals" = "Fundamentals",
         "methods" = "Sampling Methods", 
         "best_practices" = "Best Practices",
+        "field_guidance" = "Field Guidance",
         "further_reading" = "Further Reading"
       )
       
@@ -627,10 +657,6 @@ wiki_server <- function(id) {
         )
       }
       
-      # Debug: Print content info
-      cat("Displaying article:", article$title, "\n")
-      cat("Content file:", content_file, "\n")
-      cat("File exists:", file.exists(content_file), "\n")
 
       # Build a nicer article header and metadata
       header_html <- paste0(
