@@ -310,55 +310,55 @@ Implementation notes:
 
 ### 6a. Core extensions (first step)
 
-- [ ] **6.1 Means for every design (M).**
+- [x] **6.1 Means for every design (M).**
   - Add an outcome type (proportion or mean) to all four designs.
   - For means, the variance per group is SD² in place of p(1−p). Inputs: the SD, and the baseline mean or the change.
   - Optional standardised effect size (Cohen's d), for when the SD is unknown. Show the d that the inputs imply in every case.
   - Panel and DiD for means use ρ exactly as for proportions.
   - MDE mode returns the difference in outcome units and as d.
-- [ ] **6.2 ANCOVA for panel data (S).**
+- [x] **6.2 ANCOVA for panel data (S).**
   - Add "Panel, endline comparison controlling for baseline (ANCOVA)" as a design. Variance factor (1−ρ²), against 2(1−ρ) for panel DiD and 1 for an endline-only comparison (McKenzie 2012).
   - When panel DiD is selected and ρ < 0.5, show a note: an endline-only or ANCOVA analysis needs a smaller sample, with the two sample sizes side by side.
   - Guidance on choosing ρ, with typical values of 0.2–0.5 for household survey outcomes. Default 0.3 for ANCOVA, still adjustable.
-- [ ] **6.3 Several key indicators (M).**
+- [x] **6.3 Several key indicators (M).**
   - A table with one row per indicator: name, type (proportion or mean), baseline value, SD (for means), detectable difference, and ICC (optional, per indicator).
   - The calculator sizes each indicator under the same design and uses the largest. The result names the indicator that drives the sample.
   - Optional Bonferroni correction (α divided by the number of indicators tested), off by default and explained in the guide.
   - MDE mode returns the MDE of every indicator for the fixed sample.
-- [ ] **6.4 Subgroups (M).**
+- [x] **6.4 Subgroups (M).**
   - Optional subgroups for separate results, e.g. female-headed households or provinces. Inputs: the subgroup name and its expected share of the sample, or a fixed sample per subgroup.
   - Two goals, chosen by the user:
     - detect the difference within each subgroup: the total is the largest of n ÷ share;
     - report the overall result only: the MDE for each subgroup is shown, as information.
   - Warn when a subgroup share is so small that the total is several times the overall requirement, and suggest oversampling that subgroup (with weights) instead.
-- [ ] **6.5 Design effect inputs (M).**
+- [x] **6.5 Design effect inputs (M).**
   - Choose how the DEFF is set:
     - ICC and m (current);
     - a known DEFF from an earlier survey;
     - ICC, mean cluster size and the CV of cluster sizes: 1 + ((CV² + 1)·m̄ − 1)·ICC.
   - Optional weighting effect (Kish): DEFF_w = 1 + CV² of the weights, multiplied with the clustering DEFF. Explain that the Sample Generator weights give this CV.
   - The steps table shows each part of the DEFF separately.
-- [ ] **6.6 TPM field adjustments (M).**
+- [x] **6.6 TPM field adjustments (M).**
   - **Inaccessible clusters:** an "expected inaccessible clusters (%)" input, separate from non-response. Clusters = ceiling(clusters needed ÷ (1 − share)). Link to the replacement protocol page.
   - **Few clusters:** when there are fewer than 20 clusters per arm, use t-values with the cluster-level degrees of freedom in place of z, and say so in the steps.
   - **Small programmes:** an optional population size per group. Apply the finite population correction, and warn when the sample is more than half of the population (a census may be simpler).
   - **Matched comparisons (PSM):** an optional inflation factor for units lost outside common support (guidance: 1.2–1.5). Off by default, with a note on when it applies.
-- [ ] **6.7 Relative change and rare outcomes (S).**
+- [x] **6.7 Relative change and rare outcomes (S).**
   - A toggle to state the change as absolute (points) or relative (% of baseline, e.g. "reduce stunting by 20%"). The result shows both.
   - When a proportion is below 0.10 or above 0.90, use Cohen's h (arcsine), as `pwr` does, or show a warning that the normal approximation is weak. Decide which during implementation and record the choice here.
 
 ### 6b. Second step
 
-- [ ] **6.8 Report text and PDF (M).**
+- [x] **6.8 Report text and PDF (M).**
   - Generate a short methods paragraph for inception reports: design, indicator(s), every assumption and its value, the DEFF, adjustments and the final sample. Copy button in the app, and included in the downloads.
   - Add a PDF download, matching the Sample Calculator PDF (with the version, as in 5.3.2).
-- [ ] **6.9 More than two arms (M).**
+- [ ] **Excluded:** **6.9 More than two arms (M).**
   - E.g. cash, in-kind and control. Input: the number of arms and the comparisons of interest (each arm against control, or all pairs).
   - n per arm for each comparison, with the multiple-comparison correction from 6.3. Extend the groups table and the Excel export.
 
 ### 6c. Tests, documentation and checks
 
-- [ ] **6.10 Tests and documentation (M).**
+- [x] **6.10 Tests and documentation (M).**
   - Regression: the 3a.6 case must not change (310 → DEFF 1.5 → 78 clusters → 468 per group).
   - Means: check against `pwr::pwr.t2n.test` / `pwr.t.test` (via d) and the closed-form z formula for at least three cases. Panel and ANCOVA checked against the variance factors in 6.2 by hand.
   - Multiple indicators: the result equals the largest single-indicator result. Subgroups: the total equals the largest n ÷ share.
@@ -366,6 +366,29 @@ Implementation notes:
   - Field adjustments: FPC, inaccessible clusters and t-values checked on worked examples.
   - Update `guide_content/evaluation_calculator.md` and the Sampling Guideline: means, ANCOVA and when to use it, choosing ρ and the SD, subgroups and multiple indicators.
   - Extend `tests/playwright/ui-check.mjs` to run a mean scenario and a multiple-indicator scenario.
+
+**Phase 6 status (2026-10-16):** implemented, except 6.9 (excluded). All R tests, `Rscript test_app.R` and the Playwright check (desktop and phone) pass. The 3a.6 regression case is unchanged.
+
+Implementation notes:
+- **Engine** (`sample_size_functions.R`): `evaluation_run()` runs every indicator (`evaluation_size_single()` or `evaluation_mde_single()`) and keeps the one with the largest sample. It then adds the indicator, subgroup and analysis-comparison tables, warnings and steps. `evaluation_sample_size()` and `evaluation_mde()` keep their names and arguments, so earlier calls still work.
+- **Order of adjustments:**
+  1. completed n × matching factor × subgroup factor;
+  2. × DEFF (clustering × weighting);
+  3. FPC;
+  4. ÷ response rate and retention;
+  5. whole clusters;
+  6. ÷ (1 − inaccessible share).
+
+  MDE mode inverts the same steps (`evaluation_effective_n()`).
+- **Means:** one SD for every group and round. Cohen's d is shown for means and Cohen's h for proportions.
+- **ANCOVA:** a separate design with variance (σ²_T2 + σ²_C2/k)(1 − ρ²). On switching to ANCOVA, ρ is set to 0.3 if it was 0. When panel DiD is selected with ρ < 0.5, the panel DiD, ANCOVA and endline-only sample sizes (or MDEs) are shown side by side; endline-only uses ρ = 0 and no attrition.
+- **Several indicators:** an editable table. Its Change column is signed and read on the chosen scale (points or units, % of baseline, or d). A blank ICC uses the common ICC. The control columns are used by the DiD and ANCOVA designs.
+- **Subgroups:** with the "within" goal the factor is 1 ÷ the smallest share, among subgroups without a fixed sample. Each subgroup's MDE uses its own sample spread over the same clusters (fewer interviews per cluster, so a smaller DEFF).
+- **Few clusters:** t-values are used when group 1 has fewer than 20 clusters, with df = clusters in all groups − number of groups. df is iterated to a fixed point; if it cycles, the smaller df (larger sample) is kept. This can be switched off.
+- **6.7 decision:** the normal approximation is kept, so results stay comparable with `power.prop.test`. When a proportion is below 0.10 or above 0.90, a warning is shown, and for two independent groups the arcsine (Cohen's h) sample size is added to the steps for comparison.
+- **Report:** `evaluation_report_text()` writes the methods paragraph shown under the result (with a Copy button). It is also included in the Excel ("Methods Text" sheet) and in the new PDF report (`evaluation_report_rmd()`).
+- **Hand-over:** the Decision Tree passes ρ = 0.3 for panel and panel DiD designs (the 6.2 follow-up).
+- **Docs:** new Sampling Guideline article `wiki_content/evaluation_sample_size.md`; `guide_content/evaluation_calculator.md` rewritten.
 
 ---
 
@@ -478,7 +501,7 @@ Implementation notes:
   - Every distinct set of answers is checked (157,443): every value of each question that applies to the purpose, and every subset of the reporting groups and of the constraints. Questions that do not apply, and ticking "overall" next to a group, are checked to have no effect, so these combinations cover the full answer space. The run takes about 50 seconds.
   - Named scenarios, the gender-stratum rule, coverage warnings, the module server (live updates, hand-over, article links), the PDF, and `apply_handover()` in all three receiving modules are tested.
   - The Playwright check runs the PDM scenario, both hand-over buttons, an evaluation hand-over (DiD panel) and a protocol link, at desktop and phone width.
-- **Follow-up for Phase 6.2:** the panel hand-over leaves ρ at 0, the current default. When ANCOVA and the ρ guidance are added, also pass a suggested ρ.
+- **Follow-up for Phase 6.2 (done):** the panel and panel DiD hand-overs now pass a suggested ρ of 0.3, and the note on the Evaluation Calculator says so.
 
 ---
 

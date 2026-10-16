@@ -171,6 +171,42 @@ async function runAt(viewport, label) {
   await checkLayout(page, `${label} Evaluation Calculator`);
   await shot("4-evaluation-calculator");
 
+  // Evaluation: a mean (FCS 40, SD 12, change 3 -> 430 per group with the default clustering)
+  const ev = (id) => page.locator(`#evaluation_calculator-${id}`);
+  await page.locator('input[name="evaluation_calculator-outcome"][value="mean"]').check();
+  await settle(page);
+  const meanHead = await ev("headline").innerText();
+  if (!/430/.test(meanHead)) report(label, `evaluation mean: headline is "${meanHead.replace(/\s+/g, " ").slice(0, 80)}"`);
+  if (!/is a mean/.test(await ev("explanation").innerText())) report(label, "evaluation mean: methods text does not describe a mean");
+  await shot("4b-evaluation-mean");
+
+  // Several indicators: the default table's proportion (0.30, -8 points) needs 810 and sets the sample; then subgroups
+  await page.locator('input[name="evaluation_calculator-indicator_count"][value="several"]').check();
+  await settle(page);
+  const sevHead = await ev("headline").innerText();
+  if (!/810/.test(sevHead) || !/poor food consumption/.test(sevHead)) {
+    report(label, `evaluation indicators: headline is "${sevHead.replace(/\s+/g, " ").slice(0, 120)}"`);
+  }
+  await ev("use_subgroups").check();
+  await settle(page);
+  const details = await ev("detail_tables").innerText();
+  if (!details.includes("Key Indicators") || !details.includes("Female-headed households")) report(label, "evaluation: indicator or subgroup table missing");
+  await checkLayout(page, `${label} Evaluation Calculator (indicators, subgroups)`);
+  await shot("4c-evaluation-indicators");
+  if (label === "desktop") {
+    // Fetch the PDF from the download link (a browser download leaves a tab that breaks context.close)
+    const pdf = await ev("download_pdf").evaluate(async (el) => {
+      const r = await fetch(el.href);
+      const b = new Uint8Array(await r.arrayBuffer());
+      return { ok: r.ok, size: b.length, head: String.fromCharCode(...b.slice(0, 4)) };
+    });
+    if (!pdf.ok || pdf.head !== "%PDF" || pdf.size < 10000) report(label, `evaluation: PDF download failed (${JSON.stringify(pdf)})`);
+  }
+  await ev("use_subgroups").uncheck();
+  await page.locator('input[name="evaluation_calculator-indicator_count"][value="one"]').check();
+  await page.locator('input[name="evaluation_calculator-outcome"][value="proportion"]').check();
+  await settle(page);
+
   // Sample Generator: upload a small frame, generate, confirm
   await openTab(page, "Sample Generator");
   const csv = path.join(here, "frame.tmp.csv");

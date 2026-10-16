@@ -35,6 +35,8 @@ test_that("wiki: every listed article exists and renders, including tables", {
     expect_true(all(c("site_verification", "phone_monitoring", "replacement_protocol") %in% names(filtered_content())))
     session$setInputs(search_input = "reserve_order")
     expect_true("replacement_protocol" %in% names(filtered_content()))
+    session$setInputs(search_input = "ANCOVA")
+    expect_true("evaluation_sample_size" %in% names(filtered_content()))
   })
   html <- markdown::markdownToHTML(file.path(root, "wiki_content", "replacement_protocol.md"), fragment.only = TRUE)
   expect_match(html, "<table", fixed = TRUE)
