@@ -26,6 +26,8 @@ Clicking Generate first shows a frame report: duplicate or missing IDs, rows wit
 
 If many clusters have fewer units than m, the sample falls short. Reduce m, or merge small neighbouring clusters, before drawing.
 
+After the draw, any warnings and notes are listed in one box under the result cards. The same warning from several strata is shown once, with the counts added up. Click **Show details** to see the clusters affected in each stratum. The warnings are also recorded in the Methodology sheet of the Excel export.
+
 ## Outputs
 
 - **Design columns** at the start of the sample: `sample_type`, `reserve_order`, `cluster_reserve_order`, `stratum`, `cluster_id`, the selection probabilities (`p_stage1`, `p_stage2`, `p_incl`) and `base_weight`. The weights add up to the frame size; for a cluster list, `base_weight` is the weight of each interview, and the weights times `interviews` add up to the total size of the list.

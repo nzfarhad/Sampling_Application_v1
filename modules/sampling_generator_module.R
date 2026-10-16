@@ -113,6 +113,22 @@ sampling_generator_ui <- function(id) {
           margin-top: 15px;
         }
         
+        .draw-messages ul {
+          padding-left: 1.2rem;
+        }
+
+        .draw-messages details summary {
+          cursor: pointer;
+          font-size: 0.85rem;
+        }
+
+        .draw-messages details ul {
+          max-height: 220px;
+          overflow-y: auto;
+          font-size: 0.85rem;
+          margin-top: 4px;
+        }
+
         .variable-names-modal .modal-dialog {
           max-width: 600px;
         }
@@ -653,6 +669,9 @@ sampling_generator_ui <- function(id) {
                   )
                 ),
                 
+                # Warnings and notes from the draw
+                uiOutput(ns("draw_messages")),
+
                 # Download Options
                 div(
                   class = "row mb-4",
@@ -738,7 +757,63 @@ CLUSTER_LIST_COLUMN_NOTES <- local({
   ))
 })
 
-REPLACEMENT_REASONS <- c("Insecure / inaccessible", "Refused", "Not found / moved", "Other")
+#' Group Draw Warnings or Notes for Display
+#'
+#' The same message repeated in several strata ("Stratum X: 3 cluster(s) ...")
+#' becomes one line with the counts added up, and long lists of clusters move
+#' to the details, one line per stratum or per item.
+#'
+#' @param msgs Character vector of messages
+#'
+#' @return A data frame with `summary` and a list column `details`
+group_draw_messages <- function(msgs) {
+  msgs <- unique(trimws(msgs[!is.na(msgs) & nzchar(trimws(msgs))]))
+  out <- data.frame(summary = character(0), stringsAsFactors = FALSE)
+  out$details <- list()
+  if (length(msgs) == 0) return(out)
+
+  has_stratum <- grepl("^Stratum [^:]+: ", msgs)
+  stratum <- ifelse(has_stratum, sub("^Stratum ([^:]+): .*$", "\\1", msgs), NA_character_)
+  body <- sub("^Stratum [^:]+: ", "", msgs)
+  # A list after the first colon (not a sentence) is set apart from the message,
+  # so the same message with different clusters groups together
+  pos <- regexpr(": ", body, fixed = TRUE)
+  tail <- ifelse(pos > 0, substring(body, pos + 2), "")
+  is_list <- nzchar(tail) & !grepl("[[:alpha:])][.]$", tail)
+  head <- ifelse(is_list, substr(body, 1, pos - 1), body)
+  tail[!is_list] <- ""
+  key <- gsub("[0-9]+", "#", head)
+
+  split_items <- function(x) {
+    if (grepl("; ", x, fixed = TRUE)) strsplit(x, "; ", fixed = TRUE)[[1]]
+    else if (!grepl("(", x, fixed = TRUE)) strsplit(x, ", ", fixed = TRUE)[[1]]
+    else x
+  }
+
+  for (k in unique(key)) {
+    i <- which(key == k)
+    if (length(i) == 1) {
+      # A short list stays in the message; a long one goes to the details
+      short <- nchar(tail[i]) <= 60
+      summary <- paste0(if (has_stratum[i]) paste0("Stratum ", stratum[i], ": "), head[i],
+                        if (nzchar(tail[i]) && short) paste0(": ", tail[i]))
+      details <- if (nzchar(tail[i]) && !short) split_items(tail[i]) else character(0)
+    } else {
+      summary <- head[i[1]]
+      if (all(grepl("^[0-9]+ ", head[i]))) {
+        summary <- sub("^[0-9]+", sum(as.numeric(sub("^([0-9]+) .*$", "\\1", head[i]))), summary)
+      }
+      strata <- sum(has_stratum[i])
+      if (strata > 0) summary <- paste0(summary, " (in ", strata, " strata)")
+      details <- paste0(ifelse(has_stratum[i], paste0("Stratum ", stratum[i], ": "), ""), ifelse(nzchar(tail[i]), tail[i], head[i]))
+    }
+    out[nrow(out) + 1, "summary"] <- summary
+    out$details[[nrow(out)]] <- details
+  }
+  out
+}
+
+REPLACEMENT_REASONS <-c("Insecure / inaccessible", "Refused", "Not found / moved", "Other")
 
 # App version from the VERSION file, plus the git commit when available and
 # commit = TRUE (used in exports; the footer shows the version only)
@@ -814,6 +889,35 @@ sampling_generator_server <- function(id, study_name = NULL) {
     frame_check_result <- reactiveVal(NULL)
     pending_spec <- reactiveVal(NULL)
     allocation_inputs <- reactiveVal(NULL)
+    draw_messages <- reactiveVal(NULL)
+
+    # Warnings and notes from the last draw, grouped, in one box
+    output$draw_messages <- renderUI({
+      m <- draw_messages()
+      req(m)
+      block <- function(msgs, class, title) {
+        g <- group_draw_messages(msgs)
+        if (nrow(g) == 0) return(NULL)
+        div(
+          class = paste("alert draw-messages", class),
+          tags$strong(title(nrow(g))),
+          tags$ul(class = "mb-0 mt-1", lapply(seq_len(nrow(g)), function(i) {
+            details <- g$details[[i]]
+            tags$li(
+              g$summary[i],
+              if (length(details)) tags$details(
+                tags$summary(paste0("Show ", length(details), if (length(details) == 1) " detail" else " details")),
+                tags$ul(lapply(details, tags$li))
+              )
+            )
+          }))
+        )
+      }
+      tagList(
+        block(m$warnings, "alert-warning", function(n) paste0(n, " warning", if (n != 1) "s", " from the draw")),
+        block(m$notes, "alert-secondary", function(n) if (n == 1) "Note" else "Notes")
+      )
+    })
 
     # Study Name synchronization with the other tabs
     if (!is.null(study_name)) {
@@ -907,6 +1011,7 @@ sampling_generator_server <- function(id, study_name = NULL) {
         uploaded_data(data)
         generated_sample(NULL)
         cluster_summary(NULL)
+        draw_messages(NULL)
         shinyjs::hide("results_section")
 
         shinyjs::runjs(paste0('
@@ -1130,7 +1235,7 @@ sampling_generator_server <- function(id, study_name = NULL) {
         selection = "none",
         editable = if (editable_input) list(target = "cell", disable = list(columns = setdiff(seq_along(labels) - 1, preview$input_col))) else FALSE,
         caption = if (!is.null(preview$message)) htmltools::tags$caption(style = "color:#b00020;", preview$message),
-        options = list(dom = "t", paging = FALSE, ordering = FALSE)
+        options = list(dom = "t", paging = FALSE, ordering = FALSE, scrollX = TRUE)
       )
     })
 
@@ -1262,6 +1367,16 @@ sampling_generator_server <- function(id, study_name = NULL) {
           shinyjs::hide("cluster_summary_section")
         }
 
+        expected <- if (!is.null(result$allocation)) sum(result$allocation$n_allocated) else spec$sample_size
+        if (main_count != expected) {
+          sampling_warnings <- c(
+            paste0("Main sample has ", main_count, if (cluster_list) " interviews" else " units", " (requested ", expected, ")",
+                   if (is_cluster) ". Cluster samples are whole multiples of the interviews per cluster, and small clusters can fall short." else "."),
+            sampling_warnings
+          )
+        }
+        draw_messages(list(notes = sampling_notes, warnings = sampling_warnings))
+
         methodology(build_methodology(spec, data, sample_data, frame_check_result(), sampling_notes, sampling_warnings))
 
         shinyjs::show("results_section")
@@ -1275,23 +1390,14 @@ sampling_generator_server <- function(id, study_name = NULL) {
           document.getElementById("', session$ns("buffer_result"), '").textContent = "', buffer_text, '";
         '))
 
-        for (note in sampling_notes) {
-          showNotification(note, type = "message", duration = 10)
+        # One short notice; the details are in the box under the result cards
+        n_warn <- nrow(group_draw_messages(sampling_warnings))
+        if (n_warn > 0) {
+          showNotification(paste0("Sample generated with ", n_warn, " warning", if (n_warn != 1) "s",
+                                  ". See the box under the results."), type = "warning", duration = 8)
+        } else {
+          showNotification("Sample generated successfully!", type = "message")
         }
-        for (w in sampling_warnings) {
-          showNotification(w, type = "warning", duration = NULL)
-        }
-
-        expected <- if (!is.null(result$allocation)) sum(result$allocation$n_allocated) else spec$sample_size
-        if (main_count != expected) {
-          showNotification(
-            paste0("Main sample has ", main_count, if (cluster_list) " interviews" else " units", " (requested ", expected, ")",
-                   if (is_cluster) ". Cluster samples are whole multiples of the interviews per cluster, and small clusters can fall short." else "."),
-            type = "warning", duration = NULL
-          )
-        }
-
-        showNotification("Sample generated successfully!", type = "message")
 
       }, error = function(e) {
         showNotification(paste("Error generating sample:", e$message), type = "error", duration = NULL)

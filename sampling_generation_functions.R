@@ -723,6 +723,7 @@ stratified_sampling <- function(data, strata_var, allocation, within = "simple_r
   # Cluster list IDs come from the whole list, so they match the cluster summary
   ids <- if (cluster_list) cluster_list_ids(data, cluster_var) else NULL
   pieces <- list()
+  rule_reported <- FALSE
 
   for (i in seq_len(nrow(allocation))) {
     h <- allocation$stratum[i]
@@ -751,8 +752,11 @@ stratified_sampling <- function(data, strata_var, allocation, within = "simple_r
         invokeRestart("muffleWarning")
       },
       message = function(m) {
-        # The size-measure rule is the same in every stratum; report it once
-        if (i == 1 || !grepl("^Cluster (size measure|list)", conditionMessage(m))) {
+        # The size-measure rule is the same in every stratum; report it once, without a stratum
+        if (grepl("^Cluster (size measure|list)", conditionMessage(m))) {
+          if (!rule_reported) message(trimws(conditionMessage(m)))
+          rule_reported <<- TRUE
+        } else {
           message(prefix, trimws(conditionMessage(m)))
         }
         invokeRestart("muffleMessage")

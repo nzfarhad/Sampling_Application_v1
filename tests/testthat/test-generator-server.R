@@ -226,3 +226,43 @@ test_that("generator: Method 1 draws reserve clusters when asked", {
     expect_equal(pending_spec()$reserve_clusters, 2)
   })
 })
+
+test_that("draw messages: repeats across strata become one line, long lists go to the details", {
+  msgs <- c(
+    "Stratum A: 2 selected cluster(s) had fewer units than required; all their units were taken: V1 (needs 5, has 3); V2 (needs 5, has 1); V3 (needs 5, has 2); V4 (needs 5, has 2)",
+    "Stratum B: 3 selected cluster(s) had fewer units than required; all their units were taken: V7 (needs 5, has 3); V8 (needs 5, has 1); V9 (needs 5, has 2); V10 (needs 5, has 4)",
+    "Main sample has 95 units (requested 100).",
+    "4 cluster(s) did not have enough remaining units for the full set of reserves: Village one, Village two, Village three, Village four, Village five, Village six, Village seven, Village eight",
+    "Main sample has 95 units (requested 100)."
+  )
+  g <- group_draw_messages(msgs)
+  expect_equal(nrow(g), 3)
+  expect_equal(g$summary[1], "5 selected cluster(s) had fewer units than required; all their units were taken (in 2 strata)")
+  expect_length(g$details[[1]], 2)
+  expect_match(g$details[[1]][2], "^Stratum B: V7")
+  expect_equal(g$summary[2], "Main sample has 95 units (requested 100).")
+  expect_length(g$details[[2]], 0)
+  expect_equal(g$details[[3]][1:2], c("Village one", "Village two"))
+  # A note that ends in a sentence is not a list
+  note <- "Cluster list: each row is one cluster. The sample lists the selected clusters and the interviews to do in each; select the units within each cluster in the field (e.g. from a household listing)."
+  expect_equal(group_draw_messages(note)$summary, note)
+  expect_equal(nrow(group_draw_messages(character(0))), 0)
+})
+
+test_that("generator: warnings are shown in one grouped box under the results", {
+  testServer(sampling_generator_server, {
+    list_inputs(session, sampling_method = "stratified_cluster", sample_size = 300, random_seed = 3,
+                strata_variable = "province")
+    session$setInputs(cluster_list_size = 30)
+    session$setInputs(generate_sample = 1)
+    session$setInputs(confirm_draw = 1)
+    m <- draw_messages()
+    expect_gt(length(m$warnings), 1)
+    html <- paste(as.character(output$draw_messages), collapse = "")
+    expect_match(html, "warning[s]? from the draw")
+    expect_match(html, "[(]in [0-9]+ strata[)]")
+    # The per-design note appears once, without a stratum
+    expect_equal(sum(grepl("Cluster list:", m$notes)), 1)
+    expect_false(any(grepl("^Stratum .*Cluster list", m$notes)))
+  })
+})
