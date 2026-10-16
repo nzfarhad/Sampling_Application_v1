@@ -15,41 +15,64 @@ ask <- function(...) {
                                    spread = "many", mode = "in_person", constraints = character(0)), list(...)))
 }
 
-# Every combination of the single-choice answers (the comparison questions only
-# for evaluations), with a few sets of the multi-choice ones
-ch <- DECISION_CHOICES
-base <- expand.grid(purpose = ch$purpose, unit = ch$unit, frame = ch$frame, spread = ch$spread, mode = ch$mode,
-                    stringsAsFactors = FALSE)
-comparison <- expand.grid(comparison = ch$comparison, panel = ch$panel, random = ch$random, stringsAsFactors = FALSE)
-all_single <- rbind(
-  cbind(base[base$purpose != "change", ], comparison[1, ], row.names = NULL),
-  merge(base[base$purpose == "change", ], comparison)
-)
-reporting_sets <- list("overall", "area", c("area", "gender"), "gender", c("component", "other"))
-constraint_sets <- list(character(0), "insecure", c("budget", "women", "list_outdated"))
+ch <- lapply(DECISION_CHOICES, unname)
+# Every subset of a set of tick boxes, including none
+subsets <- function(x) lapply(seq_len(2^length(x)) - 1, function(i) x[bitwAnd(i, 2^(seq_along(x) - 1)) > 0])
+# A result without the answers it echoes back
+outcome <- function(rec) rec[setdiff(names(rec), "answers")]
+key <- function(a) paste(names(a), vapply(a, paste, "", collapse = "+"), sep = "=", collapse = " / ")
 
-all_answers <- list()
-for (i in seq_len(nrow(all_single))) for (r in reporting_sets) for (cs in constraint_sets) {
-  a <- as.list(all_single[i, ])
-  a$reporting <- r
-  a$constraints <- cs
-  all_answers[[length(all_answers) + 1]] <- a
-}
-all_results <- lapply(all_answers, recommend_design)
+# Every answer to the single-choice questions, keeping only the questions that
+# apply to it (the others are ignored, tested below), without duplicates
+full_grid <- expand.grid(purpose = ch$purpose, unit = ch$unit, frame = ch$frame, spread = ch$spread, mode = ch$mode,
+                         comparison = ch$comparison, panel = ch$panel, random = ch$random, stringsAsFactors = FALSE)
+full_grid <- lapply(seq_len(nrow(full_grid)), function(i) as.list(full_grid[i, ]))
+singles <- lapply(full_grid, function(a) a[intersect(names(a), decision_applicable(a))])
+singles <- singles[!duplicated(vapply(singles, key, ""))]
 
-# TRUE when check(answers, result) holds for every combination; lists the first failures otherwise
-holds_for_all <- function(check) {
-  ok <- mapply(check, all_answers, all_results)
-  if (!all(ok)) message(paste(utils::head(vapply(all_answers[!ok], function(a) paste(unlist(a), collapse = "/"), ""), 5), collapse = "\n"))
-  all(ok)
+# Each one with every subset of the reporting groups and of the constraints, where
+# those questions apply. No group stands for "overall"; ticking "overall" next to
+# a group changes nothing (tested below).
+group_sets <- lapply(subsets(setdiff(ch$reporting, "overall")), function(g) if (length(g)) g else "overall")
+constraint_sets <- subsets(ch$constraints)
+multi_sets <- function(a) {
+  if (!"reporting" %in% decision_applicable(a)) return(list(list()))
+  unlist(lapply(group_sets, function(g) lapply(constraint_sets, function(cs) list(reporting = g, constraints = cs))),
+         recursive = FALSE)
 }
 
-test_that("decision tree: every combination gives one known design with stages and reasons", {
-  expect_gt(length(all_results), 10000)
-  expect_true(holds_for_all(function(a, rec) {
+# Checks run on every combination, in one pass: answers (with defaults filled in) and result
+checks <- list(
+  known_design = function(a, rec) {
     length(rec$design) == 1 && rec$design %in% names(DESIGNS) && length(rec$stages) > 0 &&
       length(rec$reasons) > 0 && all(rec$protocols %in% names(WIKI_ARTICLES))
-  }))
+  },
+  non_probability = function(a, rec) {
+    probability <- DESIGNS[[rec$design]]$category == "Probability"
+    no_moe <- any(grepl("no margin of error", rec$warnings, fixed = TRUE))
+    if (a$purpose %in% c("qualitative", "pilot") || a$frame == "unlistable") !probability && no_moe
+    else if (probability) !no_moe
+    else TRUE
+  }
+)
+failures <- setNames(rep(list(character(0)), length(checks)), names(checks))
+n_checked <- 0
+for (s in singles) for (m in multi_sets(s)) {
+  a <- c(s, m)
+  rec <- recommend_design(a)
+  n_checked <- n_checked + 1
+  for (k in names(checks)) if (!isTRUE(checks[[k]](rec$answers, rec))) failures[[k]] <- c(failures[[k]], key(a))
+}
+# No failures; the first few are shown otherwise
+expect_no_failures <- function(check) expect(length(failures[[check]]) == 0,
+  paste0(length(failures[[check]]), " combinations fail, e.g.\n", paste(utils::head(failures[[check]], 5), collapse = "\n")))
+
+test_that("decision tree: every combination gives one known design with stages and reasons", {
+  # pilot: mode (3); qualitative: frame x mode (15); level, verify: unit x frame x spread x mode (60 each);
+  # change: 60 x 8 comparison set-ups; all but pilot x 16 group sets x 16 constraint sets
+  expect_equal(length(singles), 3 + 15 + 60 + 60 + 60 * 8)
+  expect_equal(n_checked, 3 + (15 + 60 + 60 + 60 * 8) * 16 * 16)
+  expect_no_failures("known_design")
 })
 
 test_that("decision tree: no result until the purpose is answered", {
@@ -58,22 +81,28 @@ test_that("decision tree: no result until the purpose is answered", {
 })
 
 test_that("decision tree: questions that do not apply are ignored", {
-  expect_true(holds_for_all(function(a, rec) {
-    identical(recommend_design(a[intersect(names(a), rec$applicable)])$design, rec$design)
-  }))
+  # Every single-choice answer, with groups and constraints ticked, gives the same
+  # result as the questions that apply to it alone
+  ignored <- vapply(full_grid, function(a) {
+    a <- c(a, list(reporting = c("area", "gender"), constraints = c("insecure", "budget")))
+    rec <- recommend_design(a)
+    identical(outcome(recommend_design(a[intersect(names(a), rec$applicable)])), outcome(rec))
+  }, logical(1))
+  expect_true(all(ignored), info = paste(utils::head(vapply(full_grid[!ignored], key, ""), 5), collapse = "\n"))
+
+  # Ticking "overall" next to any groups changes nothing
+  with_overall <- unlist(lapply(Filter(function(s) "reporting" %in% decision_applicable(s), singles), function(s)
+    vapply(group_sets[-1], function(g) identical(outcome(recommend_design(c(s, list(reporting = c("overall", g))))),
+                                                 outcome(recommend_design(c(s, list(reporting = g))))), logical(1))))
+  expect_true(all(with_overall))
+
   expect_setequal(decision_applicable(list(purpose = "pilot")), c("purpose", "mode"))
   expect_true("random" %in% decision_applicable(list(purpose = "change", comparison = "groups_both")))
   expect_false("panel" %in% decision_applicable(list(purpose = "change", comparison = "groups_endline")))
 })
 
 test_that("decision tree: no random selection gives no probability design and a warning", {
-  probability <- names(DESIGNS)[vapply(DESIGNS, function(d) d$category == "Probability", logical(1))]
-  expect_true(holds_for_all(function(a, rec) {
-    no_moe <- any(grepl("no margin of error", rec$warnings, fixed = TRUE))
-    if (a$purpose %in% c("qualitative", "pilot") || a$frame == "unlistable") !rec$design %in% probability && no_moe
-    else if (rec$design %in% probability) !no_moe
-    else TRUE
-  }))
+  expect_no_failures("non_probability")
 })
 
 test_that("decision tree: named scenarios", {

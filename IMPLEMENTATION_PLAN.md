@@ -475,7 +475,7 @@ Implementation notes:
   - For the generator, sets the method, cluster list or unit list, PPS, and the strata to choose after upload.
   - The calculator hides its earlier result until Calculate is clicked again.
 - **Tests:**
-  - All 14,400 answer combinations are checked. Questions that do not apply are checked to have no effect.
+  - Every distinct set of answers is checked (157,443): every value of each question that applies to the purpose, and every subset of the reporting groups and of the constraints. Questions that do not apply, and ticking "overall" next to a group, are checked to have no effect, so these combinations cover the full answer space. The run takes about 50 seconds.
   - Named scenarios, the gender-stratum rule, coverage warnings, the module server (live updates, hand-over, article links), the PDF, and `apply_handover()` in all three receiving modules are tested.
   - The Playwright check runs the PDM scenario, both hand-over buttons, an evaluation hand-over (DiD panel) and a protocol link, at desktop and phone width.
 - **Follow-up for Phase 6.2:** the panel hand-over leaves ρ at 0, the current default. When ANCOVA and the ρ guidance are added, also pass a suggested ρ.

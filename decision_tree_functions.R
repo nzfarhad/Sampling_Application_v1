@@ -293,6 +293,7 @@ decision_facts <- function(a) {
                    panel = "no", random = "no", other_group = "")
   for (k in names(defaults)) if (is.null(a[[k]]) || (length(a[[k]]) == 1 && is.na(a[[k]]))) a[[k]] <- defaults[[k]]
   if (length(a$reporting) == 0) a$reporting <- "overall"
+  if (nzchar(a$other_group)) a$other_group <- trimws(a$other_group)
   # Questions that do not apply take their default, so hidden answers never change the result
   applicable <- decision_applicable(a)
   for (k in setdiff(names(DECISION_QUESTIONS), applicable)) a[[k]] <- defaults[[k]]
@@ -320,7 +321,7 @@ decision_evaluation_design <- function(a) {
 #' Names of the reporting groups, for text
 decision_group_names <- function(a, groups = a$groups) {
   labs <- c(area = "province or district", gender = "gender", component = "programme component",
-            other = if (nzchar(trimws(a$other_group))) trimws(a$other_group) else "the other group")
+            other = if (nzchar(a$other_group)) a$other_group else "the other group")
   unname(labs[groups])
 }
 
