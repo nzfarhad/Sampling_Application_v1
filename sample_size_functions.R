@@ -425,6 +425,7 @@ evaluation_terms <- function(a, p) {
   change_var <- function(x, y, r) s2[[x]] + s2[[y]] - 2 * r * sqrt(s2[[x]] * s2[[y]])
   if (a$design == "independent") {
     effect <- p[["p2"]] - p[["p1"]]
+    parts <- c(s2[["p1"]], s2[["p2"]])
     v1 <- s2[["p1"]] + s2[["p2"]] / k
     v0 <- v1
     if (isTRUE(a$pooled) && !eval_is_mean(a)) {
@@ -434,19 +435,23 @@ evaluation_terms <- function(a, p) {
   } else if (a$design == "panel") {
     effect <- p[["p2"]] - p[["p1"]]
     v1 <- change_var("p1", "p2", rho)
+    parts <- c(v1, 0)
     v0 <- v1
   } else {
     effect <- (p[["t2"]] - p[["t1"]]) - (p[["c2"]] - p[["c1"]])
-    v1 <- if (a$design == "ancova") {
+    parts <- if (a$design == "ancova") {
       # Endline comparison adjusted for baseline: variance factor 1 - rho^2 (McKenzie 2012)
-      (s2[["t2"]] + s2[["c2"]] / k) * (1 - rho^2)
+      c(s2[["t2"]], s2[["c2"]]) * (1 - rho^2)
     } else {
       r <- if (a$design == "did_panel") rho else 0
-      change_var("t1", "t2", r) + change_var("c1", "c2", r) / k
+      c(change_var("t1", "t2", r), change_var("c1", "c2", r))
     }
+    v1 <- parts[1] + parts[2] / k
     v0 <- v1
   }
-  list(effect = effect, v0 = v0, v1 = v1)
+  # v1 = parts[1] + parts[2] / k: the share of the variance from group 1 (or the
+  # treatment arm) and from group 2 (or control); used when the groups differ in FPC
+  list(effect = effect, v0 = v0, v1 = v1, parts = parts)
 }
 
 #' Critical values for the test and the power: normal, or t with df degrees of
@@ -542,6 +547,16 @@ evaluation_effective_n <- function(adj, sample) {
   eval_fpc_inverse(completed, adj$population) / adj$deff / adj$matching
 }
 
+#' Effective completed interviews in group-1 terms, from planned samples n1
+#' (group 1 / treatment) and n2 (group 2 / control): each group gets its own
+#' FPC, and the two are combined so that v1 / n equals the actual variance
+evaluation_equiv_n <- function(a, adj, terms, n1, n2 = n1 * eval_opt(a$ratio, 1), factor = 1) {
+  e1 <- evaluation_effective_n(adj, n1)
+  if (terms$parts[2] == 0) return(e1 / factor)
+  e2 <- evaluation_effective_n(adj, n2)
+  terms$v1 / (terms$parts[1] / e1 + terms$parts[2] / e2) / factor
+}
+
 #' Sample needed in each group for n_base completed interviews in group 1:
 #' matching and subgroup factors, then DEFF, FPC, non-response and attrition,
 #' whole clusters and inaccessible clusters
@@ -633,7 +648,8 @@ evaluation_indicator_args <- function(a, row, i = 1) {
   b$sd <- num(row$SD)
   b$p2 <- NA
   scale <- eval_opt(a$effect_scale, "absolute")
-  if (scale == "value2") scale <- "absolute"
+  # Proportions have no d: on the d scale their change is read in points
+  if (scale == "value2" || (scale == "d" && b$outcome == "proportion")) scale <- "absolute"
   b$effect_scale <- scale
   change <- num(row$Change)
   if (!is.na(change)) {
@@ -698,14 +714,27 @@ evaluation_size_single <- function(a, factor = 1) {
       seen <- c(seen, df)
       df <- df_new
     }
+    if (!is.null(s$df) && s$groups$Clusters_Needed[1] >= 20) {
+      # With t-values the design reaches 20 clusters, where z values apply again: use the
+      # smallest sample with 20 clusters (or the z sample if larger), so that the sample
+      # never falls as the requirement rises
+      lo <- evaluation_base_n(a, terms)
+      hi <- s$n_base
+      for (i in 1:60) {
+        mid <- (lo + hi) / 2
+        if (evaluation_size_groups(a, mid, adj, factor)$Clusters_Needed[1] >= 20) hi <- mid else lo <- mid
+      }
+      s <- list(df = NULL, n_base = evaluation_base_n(a, terms), groups = evaluation_size_groups(a, hi, adj, factor),
+                cluster_floor = TRUE)
+    }
   }
   groups <- s$groups
-  n_eff <- evaluation_effective_n(adj, min(groups$Sample_Size / groups$multiplier)) / factor
+  n_eff <- evaluation_equiv_n(a, adj, terms, groups$Sample_Size[1], groups$Sample_Size[nrow(groups)], factor)
 
   res <- list(mode = "sample_size", args = a, p = p, terms = terms, adj = adj, z = evaluation_z(a, s$df), df = s$df,
               n_base = s$n_base, factor = factor, groups = groups, n_per_group = groups$Sample_Size[1],
               total_sample = sum(groups$Sample_Size), total_interviews = sum(groups$Interviews),
-              n_eff = n_eff, power_achieved = evaluation_power(a, terms, n_eff, s$df))
+              n_eff = n_eff, power_achieved = evaluation_power(a, terms, n_eff, s$df), cluster_floor = isTRUE(s$cluster_floor))
   if (a$design == "independent" && !eval_is_mean(a)) {
     # Arcsine (Cohen's h) sample size, shown next to the normal approximation
     h <- abs(2 * asin(sqrt(p[["p2"]])) - 2 * asin(sqrt(p[["p1"]])))
@@ -722,20 +751,31 @@ evaluation_mde_single <- function(a, factor = 1) {
   n_group <- if (adj$clustered) eval_opt(a$clusters_per_group, NA) * adj$m else eval_opt(a$n_per_group, NA)
   if (is.na(n_group) || n_group < 2) stop("Enter the sample per group (at least 2 interviews)")
   n_eff <- evaluation_effective_n(adj, n_group) / factor
+  # Group 2 (or control) is k times group 1 in effective interviews, as in sample size mode;
+  # with an FPC its planned sample is not simply k times group 1's
+  k <- eval_opt(a$ratio, 1)
+  n2 <- if (adj$fpc && is.finite(n_eff)) {
+    eval_fpc(k * evaluation_effective_n(adj, n_group) * adj$matching * adj$deff, adj$population) /
+      adj$retention / (1 - adj$inaccessible)
+  } else n_group * k
+  equiv <- function(terms) evaluation_equiv_n(a, adj, terms, n_group, n2, factor = factor)
   if (!is.finite(n_eff)) stop("The sample covers the whole population: there is no sampling error to plan for")
   groups <- evaluation_groups(a)
-  df <- if (adj$clustered) evaluation_df(adj, a$clusters_per_group * groups$multiplier * (1 - adj$inaccessible)) else NULL
+  df <- if (adj$clustered) evaluation_df(adj, ifelse(groups$multiplier == 1, n_group, n2) / adj$m * (1 - adj$inaccessible)) else NULL
   z <- evaluation_z(a, df)
 
   if (eval_is_mean(a)) {
     t0 <- evaluation_terms(a, evaluation_proportions(a, 1))
-    mde <- (z[["alpha"]] * sqrt(t0$v0) + z[["beta"]] * sqrt(t0$v1)) / sqrt(n_eff)
+    mde <- (z[["alpha"]] * sqrt(t0$v0) + z[["beta"]] * sqrt(t0$v1)) / sqrt(equiv(t0))
   } else {
     sgn <- if (identical(a$direction, "decrease")) -1 else 1
     start <- if (a$design %in% EVALUATION_ARM_DESIGNS) a$p1 + eval_opt(a$control_change, 0) else a$p1
     hi <- (if (sgn > 0) 1 - start else start) - 1e-6
     if (hi <= 1e-6) stop("The baseline proportion leaves no room for a change in that direction")
-    gap <- function(d) evaluation_base_n(a, evaluation_terms(a, evaluation_proportions(a, d)), df) - n_eff
+    gap <- function(d) {
+      t_d <- evaluation_terms(a, evaluation_proportions(a, d))
+      evaluation_base_n(a, t_d, df) - equiv(t_d)
+    }
     if (gap(hi) > 0) {
       stop("This sample cannot detect any change in that direction with the requested power. Increase the sample.")
     }
@@ -743,9 +783,10 @@ evaluation_mde_single <- function(a, factor = 1) {
   }
   p <- evaluation_proportions(a, mde)
   terms <- evaluation_terms(a, p)
+  n_eff <- equiv(terms)
 
-  groups$Sample_Size <- n_group * groups$multiplier
-  if (adj$clustered) groups$Clusters <- a$clusters_per_group * groups$multiplier
+  groups$Sample_Size <- ifelse(groups$multiplier == 1, n_group, n2)
+  if (adj$clustered) groups$Clusters <- groups$Sample_Size / adj$m
   groups$Expected_Completed <- floor(groups$Sample_Size * (1 - adj$inaccessible) * adj$retention + 1e-9)
   groups$Interviews <- groups$Sample_Size * groups$rounds
 
@@ -925,6 +966,22 @@ evaluation_warnings <- function(res, runs) {
       if (res$args$design == "independent" && !is.null(res$n_arcsine)) "; the arcsine (Cohen's h) sample size is shown in the calculation for comparison" else "",
       ", and consider a larger sample."))
   }
+  if (res$mode == "sample_size") {
+    # Implausible inputs: usually a change stated on the wrong scale (e.g. points read as % of baseline)
+    for (r in runs) {
+      std <- evaluation_standardised(r$args, r$terms$effect)
+      if (std$value < 0.05) {
+        out <- c(out, paste0(
+          "The change to detect", if (nzchar(eval_opt(r$args$indicator_name, ""))) paste0(" for ", r$args$indicator_name) else "",
+          " is very small (", evaluation_format_effect(r$args, r$terms$effect), "; ", sub("Standardised Effect \\((.*)\\)", "\\1", std$label),
+          " = ", signif(std$value, 2), "). Check the change and the scale it is stated on: points or units, % of the baseline, or d."))
+      }
+    }
+    if (res$n_per_group > 20000) {
+      out <- c(out, paste0("The sample is very large (", format(res$n_per_group, big.mark = ","),
+                           " per group). Check the change to detect, its scale and the design effect."))
+    }
+  }
   if (!is.null(res$df)) {
     out <- c(out, paste0("Fewer than 20 clusters per group: t-values with ", round(res$df, 1),
                          " degrees of freedom are used in place of z values."))
@@ -959,7 +1016,7 @@ evaluation_power_curve <- function(res, points = 60) {
     step <- if (adj$clustered) adj$m else 1
     upper <- max(res$n_per_group * 2.5, 20 * step)
     n <- unique(pmax(step, round(seq(step, upper, length.out = points) / step) * step))
-    data.frame(x = n, power = evaluation_power(a, res$terms, evaluation_effective_n(adj, n) / factor, res$df))
+    data.frame(x = n, power = evaluation_power(a, res$terms, evaluation_equiv_n(a, adj, res$terms, n, factor = factor), res$df))
   } else {
     hi <- res$mde * 2.5
     if (!eval_is_mean(a)) {
@@ -968,14 +1025,44 @@ evaluation_power_curve <- function(res, points = 60) {
       hi <- min(hi, (if (sgn > 0) 1 - start else start) - 1e-6)
     }
     d <- seq(res$mde * 0.2, hi, length.out = points)
-    pw <- vapply(d, function(x) evaluation_power(a, evaluation_terms(a, evaluation_proportions(a, x)), res$n_eff, res$df), numeric(1))
+    pw <- vapply(d, function(x) {
+      t_x <- evaluation_terms(a, evaluation_proportions(a, x))
+      evaluation_power(a, t_x, evaluation_equiv_n(a, adj, t_x, res$n_per_group, factor = factor), res$df)
+    }, numeric(1))
     data.frame(x = d, power = pw)
   }
 }
 
 #' A difference in words: percentage points for a proportion, units for a mean
 evaluation_format_effect <- function(a, x) {
-  if (eval_is_mean(a)) paste0(format(signif(abs(x), 4)), " units") else paste0(round(abs(x) * 100, 1), " percentage points")
+  if (eval_is_mean(a)) return(paste0(format(signif(abs(x), 4)), " units"))
+  pts <- abs(x) * 100
+  paste0(if (pts < 0.1) format(signif(pts, 2)) else round(pts, 1), " percentage points")
+}
+
+#' Re-express the Change column of an indicators table on another scale, so
+#' each row keeps the same change in outcome units
+#'
+#' Scales: "absolute" (points or units), "relative" (% of the baseline) and
+#' "d" (standard deviations; means only, so proportion rows are left as they
+#' are). "value2" is read as "absolute".
+evaluation_convert_change <- function(tab, from, to) {
+  scale <- function(s) if (is.null(s) || identical(s, "value2")) "absolute" else s
+  from <- scale(from)
+  to <- scale(to)
+  if (from == to || is.null(tab) || nrow(tab) == 0) return(tab)
+  num <- function(x) suppressWarnings(as.numeric(x))
+  change <- num(tab$Change)
+  base <- abs(num(tab$Baseline))
+  sd <- num(tab$SD)
+  is_mean <- startsWith(tolower(trimws(as.character(tab$Type))), "m")
+  # Proportions have no d: on the d scale their change is held in points
+  from_row <- ifelse(!is_mean & from == "d", "absolute", from)
+  to_row <- ifelse(!is_mean & to == "d", "absolute", to)
+  units <- ifelse(from_row == "relative", change / 100 * base, ifelse(from_row == "d", change * sd, change))
+  new <- ifelse(to_row == "relative", ifelse(base > 0, units / base * 100, NA), ifelse(to_row == "d", units / sd, units))
+  tab$Change <- ifelse(is.na(change) | from_row == to_row, change, signif(new, 6))
+  tab
 }
 
 evaluation_steps <- function(res) {
@@ -1101,7 +1188,8 @@ evaluation_steps <- function(res) {
           "(n × DEFF) / (1 + (n × DEFF - 1)/N), then / response rate")
     }
     if (adj$clustered) {
-      add("Clusters per Group", res$groups$Clusters_Needed[1], "ceiling(adjusted n / m)")
+      add("Clusters per Group", res$groups$Clusters_Needed[1],
+          if (isTRUE(res$cluster_floor)) "20: with t-values the design needs 20 or more clusters, where z values apply" else "ceiling(adjusted n / m)")
       if (adj$inaccessible > 0) {
         add("Clusters to Select per Group", res$groups$Clusters[1], "ceiling(clusters / (1 - inaccessible share))")
       }

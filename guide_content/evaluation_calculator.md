@@ -18,6 +18,7 @@ Sample size, or the smallest detectable difference, when comparing a proportion 
   - a standardised effect (Cohen's d, for means when the SD is uncertain);
   - the second value directly.
 - **Several key indicators:** fill in the table, one row per indicator: its name, type, baseline, SD (means), change (negative for a decrease) and, if it differs, its ICC. The largest sample is used, and the result names the indicator that drives it. Tick Bonferroni to divide α by the number of indicators.
+  - The Change column is read on the scale chosen below it, and its heading names that scale. Changing the scale converts the values, so a change of 8 points stays 8 points (for example, it becomes 26.7% of a 0.30 baseline). On the Cohen's d scale, proportions stay in points.
 - The response rate, and for panels the attrition and ρ (typically 0.2 to 0.5; 0.3 is a reasonable planning value).
 - The allocation ratio, if one group should be larger (e.g. 2 control households per treatment household).
 
@@ -44,7 +45,7 @@ Tick **Report results by subgroup** and list the subgroups with their share of t
 
 ## Results and Downloads
 
-- Warnings flag rare outcomes, few clusters, samples near the population size and large subgroup factors.
+- Warnings flag rare outcomes, few clusters, samples near the population size, large subgroup factors, and a change so small (or a sample so large) that an input is probably on the wrong scale.
 - The **methods text** describes the design, every assumption and the final sample, ready for an inception report. Use **Copy** to copy it.
 - The power curve shows how power changes with the sample size, or with the true difference in MDE mode.
 - The **Excel** download holds the methods text, the full calculation, the group, indicator and subgroup tables and the curve. The **PDF report** holds the same content for the study file.

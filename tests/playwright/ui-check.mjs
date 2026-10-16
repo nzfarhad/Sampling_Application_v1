@@ -187,6 +187,14 @@ async function runAt(viewport, label) {
   if (!/810/.test(sevHead) || !/poor food consumption/.test(sevHead)) {
     report(label, `evaluation indicators: headline is "${sevHead.replace(/\s+/g, " ").slice(0, 120)}"`);
   }
+  // Switching the change scale converts the table, so the sample does not change (reported 124 million per group)
+  await page.locator('input[name="evaluation_calculator-effect_scale"][value="relative"]').check();
+  await settle(page);
+  const relHead = await ev("headline").innerText();
+  if (!/810/.test(relHead)) report(label, `evaluation: relative scale changed the sample: "${relHead.replace(/\s+/g, " ").slice(0, 80)}"`);
+  if (!(await ev("indicators_table").innerText()).includes("% of baseline")) report(label, "evaluation: Change column does not name the scale");
+  await page.locator('input[name="evaluation_calculator-effect_scale"][value="absolute"]').check();
+  await settle(page);
   await ev("use_subgroups").check();
   await settle(page);
   const details = await ev("detail_tables").innerText();

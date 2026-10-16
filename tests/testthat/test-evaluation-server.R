@@ -112,3 +112,29 @@ test_that("evaluation server: PDF renders", {
     unlink(path)
   })
 })
+
+test_that("evaluation server: changing the scale converts the indicator table, so the sample stays the same", {
+  # Reported case: several indicators, known DEFF 1.5, m 6, matching 1.3, then "Relative change" chosen
+  testServer(evaluation_calculator_server, {
+    eval_inputs(session, indicator_count = "several", deff_method = "known", deff_known = 1.5, m = 6,
+                response_rate = 90, matching = TRUE, matching_factor = 1.3)
+    before <- result()$indicators$Sample_per_Group
+    expect_equal(before, c(546, 1014))
+    session$setInputs(effect_scale = "relative")
+    expect_equal(indicators()$Change, c(7.5, -0.08 / 0.3 * 100), tolerance = 1e-5)
+    expect_equal(result()$indicators$Sample_per_Group, before)
+    expect_length(result()$warnings, 0)
+    expect_match(paste(as.character(output$indicators_table), collapse = ""), "Change \\(% of baseline\\)")
+    session$setInputs(effect_scale = "d")
+    expect_equal(indicators()$Change, c(0.25, -0.08), tolerance = 1e-5)   # proportions are held in points on the d scale
+    expect_equal(result()$indicators$Sample_per_Group, before)
+    session$setInputs(effect_scale = "absolute")
+    expect_equal(indicators()$Change, c(3, -0.08), tolerance = 1e-5)
+    expect_equal(result()$indicators$Sample_per_Group, before)
+
+    # A change typed on the wrong scale is flagged
+    session$setInputs(effect_scale = "relative", indicators_table_cell_edit = list(row = 2, col = 4, value = "-0.08"))
+    expect_true(any(grepl("very small", result()$warnings)))
+    expect_match(paste(as.character(output$warnings), collapse = ""), "very large")
+  })
+})
