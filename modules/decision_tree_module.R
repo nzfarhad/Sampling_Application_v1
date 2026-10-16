@@ -24,8 +24,14 @@ decision_condition <- function(question) {
 
 decision_tree_ui <- function(id) {
   ns <- NS(id)
-  ask <- function(question, input_tag) {
-    conditionalPanel(condition = decision_condition(question), ns = ns, input_tag)
+  # Each question is a block (styles.css: .dt-q); questions that do not apply are hidden
+  question <- function(input_tag, class = "dt-q") div(class = class, input_tag)
+  ask <- function(id, input_tag, class = "dt-q") {
+    conditionalPanel(condition = decision_condition(id), ns = ns, question(input_tag, class))
+  }
+  # Question text with a hint on how to answer
+  q_label <- function(id, multiple = FALSE) {
+    tagList(DECISION_QUESTIONS[[id]], span(class = "dt-hint", if (multiple) "Tick all that apply" else "Choose one"))
   }
 
   fluidPage(
@@ -52,18 +58,19 @@ decision_tree_ui <- function(id) {
           div(
             class = "card-body",
             textInput(ns("study_name"), "Study Name", placeholder = "Enter study name (optional)"),
-            radioButtons(ns("purpose"), DECISION_QUESTIONS[["purpose"]], choices = DECISION_CHOICES$purpose, selected = character(0)),
-            ask("unit", radioButtons(ns("unit"), DECISION_QUESTIONS[["unit"]], choices = DECISION_CHOICES$unit)),
-            ask("frame", radioButtons(ns("frame"), DECISION_QUESTIONS[["frame"]], choices = DECISION_CHOICES$frame)),
-            ask("reporting", checkboxGroupInput(ns("reporting"), DECISION_QUESTIONS[["reporting"]],
+            question(radioButtons(ns("purpose"), q_label("purpose"), choices = DECISION_CHOICES$purpose, selected = character(0))),
+            ask("unit", radioButtons(ns("unit"), q_label("unit"), choices = DECISION_CHOICES$unit)),
+            ask("frame", radioButtons(ns("frame"), q_label("frame"), choices = DECISION_CHOICES$frame)),
+            ask("reporting", checkboxGroupInput(ns("reporting"), q_label("reporting", multiple = TRUE),
                                                 choices = DECISION_CHOICES$reporting, selected = "overall")),
-            ask("other_group", textInput(ns("other_group"), "Name of the other group", placeholder = "e.g. returnees, people with disabilities")),
-            ask("spread", radioButtons(ns("spread"), DECISION_QUESTIONS[["spread"]], choices = DECISION_CHOICES$spread, selected = "many")),
-            ask("mode", radioButtons(ns("mode"), DECISION_QUESTIONS[["mode"]], choices = DECISION_CHOICES$mode)),
-            ask("constraints", checkboxGroupInput(ns("constraints"), DECISION_QUESTIONS[["constraints"]], choices = DECISION_CHOICES$constraints)),
-            ask("comparison", radioButtons(ns("comparison"), DECISION_QUESTIONS[["comparison"]], choices = DECISION_CHOICES$comparison)),
-            ask("panel", radioButtons(ns("panel"), DECISION_QUESTIONS[["panel"]], choices = DECISION_CHOICES$panel, selected = "no")),
-            ask("random", radioButtons(ns("random"), DECISION_QUESTIONS[["random"]], choices = DECISION_CHOICES$random, selected = "no"))
+            ask("other_group", textInput(ns("other_group"), "Name of the other group", placeholder = "e.g. returnees, people with disabilities"),
+                class = "dt-q dt-q-sub"),
+            ask("spread", radioButtons(ns("spread"), q_label("spread"), choices = DECISION_CHOICES$spread, selected = "many")),
+            ask("mode", radioButtons(ns("mode"), q_label("mode"), choices = DECISION_CHOICES$mode)),
+            ask("constraints", checkboxGroupInput(ns("constraints"), q_label("constraints", multiple = TRUE), choices = DECISION_CHOICES$constraints)),
+            ask("comparison", radioButtons(ns("comparison"), q_label("comparison"), choices = DECISION_CHOICES$comparison)),
+            ask("panel", radioButtons(ns("panel"), q_label("panel"), choices = DECISION_CHOICES$panel, selected = "no")),
+            ask("random", radioButtons(ns("random"), q_label("random"), choices = DECISION_CHOICES$random, selected = "no"))
           )
         )
       ),

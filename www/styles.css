@@ -170,3 +170,65 @@ h2 {
     padding: 8px;
   }
 }
+
+/* Decision tree questions: each one a block, so the question stands out from
+   its options */
+.dt-q {
+  border-left: 3px solid #730202;
+  background-color: #fbf6f6;
+  border-radius: 0 6px 6px 0;
+  padding: 0.6rem 0.75rem 0.4rem;
+  margin-bottom: 0.9rem;
+}
+
+.dt-q .form-group {
+  margin-bottom: 0;
+  width: 100%;
+}
+
+.dt-q label.control-label {
+  display: block;
+  color: #730202;
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.4rem;
+}
+
+.dt-hint {
+  display: block;
+  color: #6c757d;
+  font-size: 0.8rem;
+  font-weight: 400;
+  font-style: italic;
+}
+
+.dt-q .shiny-options-group {
+  padding-left: 0.25rem;
+}
+
+.dt-q .radio label,
+.dt-q .checkbox label {
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: #212529;
+}
+
+/* The other group name belongs to the reporting question above it */
+.dt-q-sub {
+  margin-top: -0.6rem;
+  border-radius: 0 0 6px 0;
+}
+
+/* Wrapped option text lines up with the first line, not under the button */
+.dt-q .radio label,
+.dt-q .checkbox label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.dt-q .radio input,
+.dt-q .checkbox input {
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+}
