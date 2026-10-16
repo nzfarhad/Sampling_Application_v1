@@ -86,8 +86,3 @@ In development, humanitarian and fragile settings, common assumptions (complete 
 - Prioritise safety and ethics: ensure data collection does not increase risk to participants or enumerators.
 - Use mixed-methods approaches where probability sampling is not feasible: combine remote sensing, satellite-derived denominators, purposive or quota samples with careful documentation.
 - Choose practical methods such as cluster sampling with probability proportional to size (PPS), Lot Quality Assurance Sampling (LQAS), respondent-driven sampling (RDS) for hidden populations, or adaptive/time-location sampling for mobile groups.
-
-Detailed guidance for fragile contexts is available in the Methods section ("Sampling in Fragile Contexts").
-
-## Further Reading
-- <a href="https://documents1.worldbank.org/curated/en/304901468765592800/pdf/multi-page.pdf" target="_blank">Sampling for monitoring and evaluation</a>

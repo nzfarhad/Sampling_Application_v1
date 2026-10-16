@@ -1,680 +1,291 @@
 # Decision Tree Module
-# Interactive wizard for sampling method selection
+# Asks about the study and recommends one sampling design, with its stages,
+# reasons, alternatives and warnings, and hands the settings to the
+# calculators and the Sample Generator. The rules are in decision_tree_functions.R.
 
 library(shiny)
 library(shinyjs)
 library(rmarkdown)
 
+# JavaScript condition that shows a question only when it applies
+# (mirrors decision_applicable() in decision_tree_functions.R)
+decision_condition <- function(question) {
+  switch(question,
+    unit = , spread = "['level','change','verify'].indexOf(input.purpose) > -1",
+    frame = , reporting = "['level','change','verify','qualitative'].indexOf(input.purpose) > -1",
+    mode = "input.purpose && input.purpose.length > 0",
+    constraints = "input.purpose && input.purpose !== 'pilot'",
+    other_group = "['level','change','verify','qualitative'].indexOf(input.purpose) > -1 && input.reporting && input.reporting.indexOf('other') > -1",
+    comparison = "input.purpose === 'change'",
+    panel = "input.purpose === 'change' && ['before_after','groups_both'].indexOf(input.comparison) > -1",
+    random = "input.purpose === 'change' && ['groups_endline','groups_both'].indexOf(input.comparison) > -1"
+  )
+}
+
 decision_tree_ui <- function(id) {
   ns <- NS(id)
-  
+  # Each question is a block (styles.css: .dt-q); questions that do not apply are hidden
+  question <- function(input_tag, class = "dt-q") div(class = class, input_tag)
+  ask <- function(id, input_tag, class = "dt-q") {
+    conditionalPanel(condition = decision_condition(id), ns = ns, question(input_tag, class))
+  }
+  # Question text with a hint on how to answer
+  q_label <- function(id, multiple = FALSE) {
+    tagList(DECISION_QUESTIONS[[id]], span(class = "dt-hint", if (multiple) "Tick all that apply" else "Choose one"))
+  }
+
   fluidPage(
     useShinyjs(),
-    
-    # Header
+
     div(
       class = "row mb-4",
       div(
         class = "col-12",
-        h2("Sampling Method Decision Tree", class = "text-center mb-3"),
-        p("Fill in the fields below to generate recommended sampling methods. These recommendations are indicative and may not fully capture all contextual factors.", 
+        h2("Sampling Design Decision Tree", class = "text-center mb-3"),
+        p("Answer the questions about your study. The recommended design updates as you answer, and can be sent to the calculators and the Sample Generator.",
           class = "text-center text-muted")
       )
     ),
-    
-    # Main content
+
     div(
       class = "row",
-      # Input panel - Left side
+      # Questions
       div(
         class = "col-md-4",
         div(
-          class = "card",
+          class = "card mb-4",
+          div(class = "card-header", h5("Your Study", class = "mb-0")),
           div(
             class = "card-body",
-            # Study Name
-            textInput(
-              ns("study_name"),
-              "Study Name",
-              placeholder = "Enter study name (optional)"
-            ),
-            
-            # Survey Mode
-            selectInput(
-              ns("survey_mode"),
-              "1. Survey Mode",
-              choices = list(
-                "In-person" = "in_person",
-                "Phone" = "phone"
-              )
-            ),
-            
-            # Generalization Required
-            selectInput(
-              ns("generalization_required"),
-              "2. Generalization required",
-              choices = list(
-                "Yes" = "yes",
-                "No" = "no"
-              )
-            ),
-            
-            # Sub-group Comparison Required
-            selectInput(
-              ns("subgroup_comparison"),
-              "3. Sub-group comparison required",
-              choices = list(
-                "Yes" = "yes",
-                "No" = "no"
-              )
-            ),
-            
-            # Population Data Available
-            selectInput(
-              ns("population_data"),
-              "4. Population data available",
-              choices = list(
-                "Complete Sampling Frame" = "complete",
-                "Partial Sampling Frame" = "partial",
-                "No list available" = "none"
-              )
-            ),
-            
-            # Number of Communities/Villages
-            selectInput(
-              ns("num_communities"),
-              "5. Number of communities/villages",
-              choices = list(
-                "<50–70" = "less_70",
-                ">70" = "more_70"
-              )
-            ),
-            
-            # Logistical Constraints
-            selectInput(
-              ns("logistical_constraints"),
-              "6. Logistical constraints",
-              choices = list(
-                "Limited budget/time" = "limited_budget",
-                "Remote/insecure areas" = "remote_insecure",
-                "No constraints" = "no_constraints"
-              )
-            ),
-            
-            # Submit button
-            div(
-              class = "mt-4",
-              actionButton(
-                ns("analyze"),
-                "Analyze Requirements",
-                class = "btn btn-primary btn-block"
-              )
-            )
+            textInput(ns("study_name"), "Study Name", placeholder = "Enter study name (optional)"),
+            question(radioButtons(ns("purpose"), q_label("purpose"), choices = DECISION_CHOICES$purpose, selected = character(0))),
+            ask("unit", radioButtons(ns("unit"), q_label("unit"), choices = DECISION_CHOICES$unit)),
+            ask("frame", radioButtons(ns("frame"), q_label("frame"), choices = DECISION_CHOICES$frame)),
+            ask("reporting", checkboxGroupInput(ns("reporting"), q_label("reporting", multiple = TRUE),
+                                                choices = DECISION_CHOICES$reporting, selected = "overall")),
+            ask("other_group", textInput(ns("other_group"), "Name of the other group", placeholder = "e.g. returnees, people with disabilities"),
+                class = "dt-q dt-q-sub"),
+            ask("spread", radioButtons(ns("spread"), q_label("spread"), choices = DECISION_CHOICES$spread, selected = "many")),
+            ask("mode", radioButtons(ns("mode"), q_label("mode"), choices = DECISION_CHOICES$mode)),
+            ask("constraints", checkboxGroupInput(ns("constraints"), q_label("constraints", multiple = TRUE), choices = DECISION_CHOICES$constraints)),
+            ask("comparison", radioButtons(ns("comparison"), q_label("comparison"), choices = DECISION_CHOICES$comparison)),
+            ask("panel", radioButtons(ns("panel"), q_label("panel"), choices = DECISION_CHOICES$panel, selected = "no")),
+            ask("random", radioButtons(ns("random"), q_label("random"), choices = DECISION_CHOICES$random, selected = "no"))
           )
         )
       ),
-      
-      # Results panel - Right side
+
+      # Recommendation
       div(
         class = "col-md-8",
-        # Recommendations card
         div(
           class = "card mb-4",
           div(
-            class = "card-header",
-            h5("Recommended Sampling Methods", class = "mb-0")
-          ),
-          div(
-            class = "card-body",
-            uiOutput(ns("recommendations"))
-          )
-        ),
-        
-        
-        # Summary table
-        div(
-          class = "card",
-          div(
             class = "card-header d-flex justify-content-between align-items-center",
-            h5("Method Details", class = "mb-0"),
+            h5("Recommended Design", class = "mb-0"),
             downloadButton(ns("download_report"), "Download Report", class = "btn btn-sm btn-outline-primary")
           ),
-          div(
-            class = "card-body",
-            uiOutput(ns("method_details"))
-          )
-        )
+          div(class = "card-body", uiOutput(ns("recommendation")))
+        ),
+        uiOutput(ns("design_details"))
       )
     )
   )
 }
 
-# Server logic
-decision_tree_server <- function(id, study_name = NULL) {
+#' Decision tree server
+#'
+#' @param study_name Shared reactiveVal for the study name
+#' @param on_handover function(target, settings, design_name), called by the
+#'   hand-over buttons; target is "sample", "evaluation" or "generator"
+#' @param on_article function(article_id), opens a Sampling Guideline article
+decision_tree_server <- function(id, study_name = NULL, on_handover = NULL, on_article = NULL) {
   moduleServer(id, function(input, output, session) {
-    
-    # Sampling methods database
-    methods <- list(
-      "purposive" = list(
-        name = "Purposive Sampling",
-        category = "Non-Probability",
-        description = "Selecting cases based on specific criteria or purpose",
-        requirements = list(
-          "Clear selection criteria",
-          "Access to target groups",
-          "Expert knowledge of population"
-        ),
-        pros = list(
-          "Targeted selection",
-          "Efficient for specific groups",
-          "Good for in-depth study"
-        ),
-        cons = list(
-          "Not generalizable",
-          "Potential selection bias",
-          "Requires expertise"
-        ),
-        suitable_for = list(
-          "Qualitative studies",
-          "Case studies",
-          "Exploratory research"
-        )
-      ),
-      "snowball" = list(
-        name = "Snowball Sampling",
-        category = "Non-Probability",
-        description = "Participants recruit other participants",
-        requirements = list(
-          "Initial contacts",
-          "Network connections",
-          "Trust building"
-        ),
-        pros = list(
-          "Access to hidden populations",
-          "Builds on social networks",
-          "Cost-effective"
-        ),
-        cons = list(
-          "Selection bias",
-          "Not representative",
-          "Network limitations"
-        ),
-        suitable_for = list(
-          "Hidden populations",
-          "Sensitive topics",
-          "Network studies"
-        )
-      ),
-      "quota" = list(
-        name = "Quota Sampling",
-        category = "Non-Probability",
-        description = "Selection based on population proportions",
-        requirements = list(
-          "Known population characteristics",
-          "Clear quotas",
-          "Access to subgroups"
-        ),
-        pros = list(
-          "Ensures subgroup representation",
-          "Cost-effective",
-          "Quick implementation"
-        ),
-        cons = list(
-          "Not random",
-          "Selection bias possible",
-          "Limited generalizability"
-        ),
-        suitable_for = list(
-          "Market research",
-          "Opinion polls",
-          "Rapid assessments"
-        )
-      ),
-      "convenience" = list(
-        name = "Convenience Sampling",
-        category = "Non-Probability",
-        description = "Selecting readily available cases",
-        requirements = list(
-          "Easy access to participants",
-          "Quick implementation needed",
-          "Limited resources"
-        ),
-        pros = list(
-          "Fast and easy",
-          "Low cost",
-          "Simple implementation"
-        ),
-        cons = list(
-          "High bias risk",
-          "Not representative",
-          "Limited validity"
-        ),
-        suitable_for = list(
-          "Pilot studies",
-          "Preliminary research",
-          "Resource constraints"
-        )
-      ),
-      "simple_random" = list(
-        name = "Simple Random Sampling",
-        category = "Probability",
-        description = "Each unit has an equal chance of selection",
-        requirements = list(
-          "Complete sampling frame required",
-          "Open access to population",
-          "Good for statistical generalization"
-        ),
-        pros = list(
-          "Unbiased",
-          "Easy to analyze",
-          "Representative"
-        ),
-        cons = list(
-          "Requires complete list",
-          "Can be costly",
-          "May miss rare subgroups"
-        ),
-        suitable_for = list(
-          "Generalization",
-          "Comparison of subgroups",
-          "Routine monitoring"
-        )
-      ),
-      "stratified" = list(
-        name = "Stratified Random Sampling",
-        category = "Probability",
-        description = "Population divided into subgroups (strata) before sampling",
-        requirements = list(
-          "Complete sampling frame with group information",
-          "Open access to population",
-          "Known subgroup characteristics"
-        ),
-        pros = list(
-          "Ensures subgroup representation",
-          "More efficient than SRS",
-          "Good for comparisons"
-        ),
-        cons = list(
-          "Requires subgroup information",
-          "More complex analysis",
-          "Higher cost than SRS"
-        ),
-        suitable_for = list(
-          "Comparison of subgroups",
-          "Generalization",
-          "When subgroups are important"
-        )
-      ),
-      "cluster" = list(
-        name = "Cluster Sampling",
-        category = "Probability",
-        description = "Sampling naturally occurring groups",
-        requirements = list(
-          "List of clusters",
-          "Access to selected clusters",
-          "Geographic/administrative units"
-        ),
-        pros = list(
-          "Cost-effective",
-          "Good for geographically dispersed populations",
-          "Requires less resources"
-        ),
-        cons = list(
-          "Lower precision",
-          "Complex analysis",
-          "Cluster effects"
-        ),
-        suitable_for = list(
-          "Large geographic areas",
-          "Limited resources",
-          "When population is grouped"
-        )
-      ),
-      "systematic" = list(
-        name = "Systematic Sampling",
-        category = "Probability",
-        description = "Selecting units at fixed intervals",
-        requirements = list(
-          "Ordered list of population",
-          "No cyclical patterns",
-          "Regular access points"
-        ),
-        pros = list(
-          "Easy to implement",
-          "Spread across population",
-          "Good for ongoing selection"
-        ),
-        cons = list(
-          "Potential periodicity bias",
-          "Requires ordered list",
-          "Less random than SRS"
-        ),
-        suitable_for = list(
-          "Routine monitoring",
-          "Quality control",
-          "Regular assessments"
-        )
-      ),
-      "rdd" = list(
-        name = "Random Digit Dialing (RDD)",
-        category = "Probability",
-        description = "Randomly generating phone numbers for sampling",
-        requirements = list(
-          "No sampling frame available",
-          "Phone survey mode",
-          "Random number generation capability"
-        ),
-        pros = list(
-          "No sampling frame needed",
-          "Can reach unlisted numbers",
-          "Good for general population surveys"
-        ),
-        cons = list(
-          "Low response rates",
-          "Excludes non-phone households",
-          "May miss certain demographics"
-        ),
-        suitable_for = list(
-          "Phone surveys without lists",
-          "General population studies",
-          "Quick data collection"
-        )
-      ),
-      "stratified_cluster" = list(
-        name = "Stratified Cluster Sampling",
-        category = "Probability",
-        description = "Combining stratification and cluster sampling for complex populations",
-        requirements = list(
-          "Population can be stratified",
-          "Clusters within strata",
-          "Access to selected clusters"
-        ),
-        pros = list(
-          "Ensures subgroup representation",
-          "Cost-effective for large areas",
-          "Good for complex populations"
-        ),
-        cons = list(
-          "Complex analysis required",
-          "Requires detailed population info",
-          "Higher cost than simple cluster"
-        ),
-        suitable_for = list(
-          "Large geographic areas",
-          "Subgroup comparisons",
-          "Complex population structures"
-        )
-      )
-    )
-    
-    # Reactive values for results and inputs
-    selected_methods <- reactiveVal(NULL)
-    
-    # Study Name synchronization
+    ns <- session$ns
+
     if (!is.null(study_name)) {
-      # Update local input when shared study_name changes
       observeEvent(study_name(), {
-        if (study_name() != input$study_name) {
-          updateTextInput(session, "study_name", value = study_name())
-        }
+        if (!identical(study_name(), input$study_name)) updateTextInput(session, "study_name", value = study_name())
       })
-      
-      # Update shared study_name when local input changes
       observeEvent(input$study_name, {
-        if (input$study_name != study_name()) {
-          study_name(input$study_name)
-        }
+        if (!identical(input$study_name, study_name())) study_name(input$study_name)
       })
     }
-    
-    # Create a reactive expression for the current parameters
-    current_params <- reactive({
-      list(
-        survey_mode = input$survey_mode,
-        generalization = input$generalization_required,
-        subgroup_comparison = input$subgroup_comparison,
-        population_data = input$population_data,
-        num_communities = input$num_communities,
-        constraints = input$logistical_constraints
-      )
+
+    answers <- reactive({
+      list(purpose = if (is.null(input$purpose)) "" else input$purpose,
+           unit = input$unit, frame = input$frame, reporting = input$reporting,
+           other_group = if (is.null(input$other_group)) "" else input$other_group,
+           spread = input$spread, mode = input$mode, constraints = input$constraints,
+           comparison = input$comparison, panel = input$panel, random = input$random)
     })
-    
-    # Analyze button handler
-    observeEvent(input$analyze, {
-      # Reset selected methods to force re-render
-      selected_methods(NULL)
-      
-      # Decision logic to select appropriate methods
-      recommended <- analyze_requirements(
-        survey_mode = current_params()$survey_mode,
-        generalization = current_params()$generalization,
-        subgroup_comparison = current_params()$subgroup_comparison,
-        population_data = current_params()$population_data,
-        num_communities = current_params()$num_communities,
-        constraints = current_params()$constraints
-      )
-      
-      # Update selected methods
-      selected_methods(recommended)
-    })
-    
-    # Analysis function
-    analyze_requirements <- function(survey_mode, generalization, subgroup_comparison, population_data, num_communities, constraints) {
-      selected <- character(0)
-      
-      # Step 1: Phone Survey Logic
-      if (survey_mode == "phone") {
-        if (population_data %in% c("complete", "partial")) {
-          if (subgroup_comparison == "no") {
-            selected <- c("simple_random", "systematic")
-          } else {
-            selected <- c("stratified")
-          }
-        } else if (population_data == "none") {
-          selected <- c("rdd")
-        }
-      }
-      
-      # Step 2: In-person Survey Logic
-      if (survey_mode == "in_person") {
-        # Probability Sampling (Generalization Required = Yes)
-        if (generalization == "yes") {
-          if (subgroup_comparison == "no" && population_data %in% c("complete", "partial") && num_communities == "less_70" && constraints == "no_constraints") {
-            selected <- c("simple_random", "systematic")
-          } else if (subgroup_comparison == "yes" && population_data %in% c("complete", "partial") && num_communities == "less_70" && constraints == "no_constraints") {
-            selected <- c("stratified")
-          } else if (subgroup_comparison == "no" && population_data %in% c("complete", "partial") && num_communities == "less_70" && constraints %in% c("limited_budget", "remote_insecure")) {
-            selected <- c("cluster")
-          } else if (subgroup_comparison == "yes" && population_data %in% c("complete", "partial") && num_communities == "less_70" && constraints %in% c("limited_budget", "remote_insecure")) {
-            selected <- c("stratified_cluster")
-          } else if (subgroup_comparison == "no" && population_data == "none" && num_communities == "less_70") {
-            selected <- c("cluster")
-          } else if (subgroup_comparison == "yes" && population_data == "none" && num_communities == "less_70") {
-            selected <- c("stratified_cluster")
-          } else if (subgroup_comparison == "no" && num_communities == "more_70") {
-            selected <- c("cluster")
-          } else if (subgroup_comparison == "yes" && num_communities == "more_70") {
-            selected <- c("stratified_cluster")
-          }
-        }
-        
-        # Non-Probability Sampling (Generalization Required = No)
-        if (generalization == "no") {
-          if (subgroup_comparison == "yes" && population_data %in% c("complete", "partial") && constraints %in% c("limited_budget", "remote_insecure")) {
-            selected <- c("quota")
-          } else if (subgroup_comparison == "yes" && population_data %in% c("complete", "partial") && constraints == "no_constraints") {
-            selected <- c("quota")
-          } else if (subgroup_comparison == "no" && population_data %in% c("complete", "partial") && constraints == "no_constraints") {
-            selected <- c("convenience")
-          } else if (subgroup_comparison == "no" && population_data == "none") {
-            selected <- c("snowball")
-          } else if (subgroup_comparison == "yes" && population_data == "none") {
-            selected <- c("snowball")
-          } else if (subgroup_comparison == "yes" && population_data %in% c("complete", "partial") && constraints == "limited_budget") {
-            selected <- c("purposive", "convenience")
-          } else if (subgroup_comparison == "yes" && population_data %in% c("complete", "partial") && constraints == "remote_insecure") {
-            selected <- c("purposive", "snowball")
-          }
-        }
-      }
-      
-      # If no methods are selected, provide default recommendations
-      if (length(selected) == 0) {
-        if (survey_mode == "phone") {
-          if (generalization == "yes") {
-            selected <- c("simple_random")
-          } else {
-            selected <- c("convenience")
-          }
-        } else {
-          if (generalization == "yes") {
-            selected <- c("cluster")
-          } else {
-            if (population_data == "none") {
-              selected <- c("snowball")
-            } else {
-              selected <- c("purposive")
-            }
-          }
-        }
-      }
-      
-      # Remove duplicates and return unique methods
-      return(unique(selected))
+
+    # Recommendation follows the answers; NULL until the purpose is answered
+    recommendation <- reactive(recommend_design(answers()))
+
+    # Links to guideline articles: <a class="dt-article" data-article="id">
+    shinyjs::runjs(sprintf(
+      "$(document).on('click', '#%s .dt-article', function(e) { e.preventDefault(); Shiny.setInputValue('%s', $(this).data('article'), {priority: 'event'}); });",
+      ns("recommendation_area"), ns("open_article")
+    ))
+    observeEvent(input$open_article, if (!is.null(on_article)) on_article(input$open_article))
+
+    article_link <- function(article_id) {
+      title <- WIKI_ARTICLES[[article_id]]$title
+      tags$a(href = "#", class = "dt-article", `data-article` = article_id, if (is.null(title)) article_id else title)
     }
-    
-    # Render recommendations
-    output$recommendations <- renderUI({
-      # Invalidate cache when analyze button is clicked
-      input$analyze
-      
-      req(selected_methods())
-      isolate({
-        method_cards <- lapply(selected_methods(), function(method_id) {
-        method <- methods[[method_id]]
+    bullet_list <- function(items) tags$ul(class = "mb-0", lapply(items, tags$li))
+
+    output$recommendation <- renderUI({
+      rec <- recommendation()
+      if (is.null(rec)) {
+        return(p(class = "text-muted mb-0", "Answer the first question, \"What is the study for?\", to see a recommendation."))
+      }
+      des <- DESIGNS[[rec$design]]
+      ho <- rec$handover
+      calc_label <- if (!is.null(ho$calculator)) {
+        if (ho$calculator$target == "evaluation") "Calculate sample size (Evaluation Calculator)" else "Calculate sample size (Sample Calculator)"
+      }
+
+      div(
+        id = ns("recommendation_area"),
+        h4(class = "mb-1", id = ns("design_name"), des$name),
+        p(class = "text-muted small mb-3", paste("Category:", des$category),
+          if (!is.null(rec$evaluation)) paste0(" | Evaluation design: ", EVALUATION_DESIGN_LABELS[[rec$evaluation]])),
+
+        h6("How to select the sample"),
+        tags$ol(lapply(rec$stages, tags$li)),
+
+        h6("Why this design"),
+        div(class = "mb-3", bullet_list(rec$reasons)),
+
+        if (length(rec$alternatives) > 0) tagList(h6("Alternatives, and when to switch"), div(class = "mb-3", bullet_list(rec$alternatives))),
+
+        if (length(rec$warnings) > 0) {
+          div(class = "alert alert-warning small", tags$strong("Points to watch"), bullet_list(rec$warnings))
+        },
+
+        h6("Next steps"),
         div(
-          class = "card mb-3",
-          div(
-            class = "card-body",
-            h4(method$name, class = "card-title"),
-            p(class = "card-text", method$description),
-            p(
-              class = "card-text",
-              tags$small(
-                class = "text-muted",
-                paste("Category:", method$category)
-              )
-            )
-          )
-        )
-      })
-      
-      div(class = "recommendations-container", method_cards)
-      })
+          class = "d-flex flex-wrap gap-2 mb-3",
+          if (!is.null(ho$calculator)) actionButton(ns("to_calculator"), calc_label, class = "btn btn-primary btn-sm"),
+          if (!is.null(ho$generator)) actionButton(ns("to_generator"), "Draw the sample (Sample Generator)", class = "btn btn-outline-primary btn-sm"),
+          if (is.null(ho$calculator) && is.null(ho$generator)) span(class = "text-muted small", "No sample size to calculate for this design; follow the steps above.")
+        ),
+        p(class = "small mb-0", tags$strong("Field protocols: "),
+          tagList(lapply(seq_along(rec$protocols), function(i) {
+            tagList(if (i > 1) " | ", article_link(rec$protocols[[i]]))
+          })))
+      )
     })
-    
-    
-    # Render method details
-    output$method_details <- renderUI({
-      req(selected_methods())
-      
-      details_tables <- lapply(selected_methods(), function(method_id) {
-        method <- methods[[method_id]]
-        
+
+    output$design_details <- renderUI({
+      rec <- recommendation()
+      req(rec)
+      des <- DESIGNS[[rec$design]]
+      div(
+        class = "card",
+        div(class = "card-header", h5("About This Design", class = "mb-0")),
         div(
-          class = "method-details mb-4",
-          h5(method$name),
+          class = "card-body",
           tags$table(
-            class = "table table-sm",
-            tags$tr(
-              tags$th(width = "30%", "Requirements"),
-              tags$td(tags$ul(class = "mb-0", lapply(method$requirements, tags$li)))
-            ),
-            tags$tr(
-              tags$th("Pros"),
-              tags$td(tags$ul(class = "mb-0", lapply(method$pros, tags$li)))
-            ),
-            tags$tr(
-              tags$th("Cons"),
-              tags$td(tags$ul(class = "mb-0", lapply(method$cons, tags$li)))
-            ),
-            tags$tr(
-              tags$th("Suitable for"),
-              tags$td(tags$ul(class = "mb-0", lapply(method$suitable_for, tags$li)))
-            )
+            class = "table table-sm mb-0",
+            tags$tr(tags$th(width = "25%", "When to use"), tags$td(des$when)),
+            tags$tr(tags$th("List needed"), tags$td(des$needs)),
+            tags$tr(tags$th("Common field problems"), tags$td(bullet_list(des$field)))
           )
         )
-      })
-      
-      div(class = "details-container", details_tables)
+      )
     })
-    
-    # Download handler for report
+
+    observeEvent(input$to_calculator, {
+      rec <- recommendation()
+      req(rec, rec$handover$calculator, on_handover)
+      on_handover(rec$handover$calculator$target, rec$handover$calculator, DESIGNS[[rec$design]]$name)
+    })
+    observeEvent(input$to_generator, {
+      rec <- recommendation()
+      req(rec, rec$handover$generator, on_handover)
+      on_handover("generator", rec$handover$generator, DESIGNS[[rec$design]]$name)
+    })
+
+    # PDF report, always built from the current answers
     output$download_report <- downloadHandler(
       filename = function() {
-        study_name_clean <- if (input$study_name != "") {
-          paste0(gsub("[^A-Za-z0-9_-]", "_", input$study_name), "_Method")
+        stem <- if (!is.null(input$study_name) && input$study_name != "") {
+          paste0(gsub("[^A-Za-z0-9_-]", "_", input$study_name), "_Design")
         } else {
-          "sampling-recommendations"
+          "sampling-design"
         }
-        paste0(study_name_clean, "-", format(Sys.time(), "%Y%m%d"), ".pdf")
+        paste0(stem, "-", format(Sys.time(), "%Y%m%d"), ".pdf")
       },
       content = function(file) {
+        rec <- recommendation()
+        validate(need(!is.null(rec), "Answer the first question before downloading the report."))
         temp_rmd <- tempfile(fileext = ".Rmd")
-        writeLines(
-          sprintf('---
-title: "%s"
-date: "%s"
-output:
-  pdf_document: default
----
-
-## Study Information
-
-**Study Name**: %s
-
-## Study Requirements
-
-- **Survey Mode**: %s
-- **Generalization Required**: %s
-- **Sub-group Comparison Required**: %s
-- **Population Data Available**: %s
-- **Number of Communities/Villages**: %s
-- **Logistical Constraints**: %s
-
-## Recommended Methods
-
-%s
-',
-            if (input$study_name != "") paste0(input$study_name, " - Sampling Method Recommendations") else "Sampling Method Recommendations",
-            format(Sys.time(), "%B %d, %Y"),
-            if (input$study_name != "") input$study_name else "Not specified",
-            input$survey_mode,
-            input$generalization_required,
-            input$subgroup_comparison,
-            input$population_data,
-            input$num_communities,
-            input$logistical_constraints,
-            paste(lapply(selected_methods(), function(method_id) {
-              method <- methods[[method_id]]
-              sprintf("### %s\n\n%s\n\n#### Requirements\n%s\n\n#### Advantages\n%s\n\n#### Disadvantages\n%s\n\n#### Best Used For\n%s\n",
-                     method$name,
-                     method$description,
-                     paste("*", method$requirements, collapse = "\n"),
-                     paste("*", method$pros, collapse = "\n"),
-                     paste("*", method$cons, collapse = "\n"),
-                     paste("*", method$suitable_for, collapse = "\n"))
-            }), collapse = "\n\n")
-          ),
-          temp_rmd
-        )
-        
-        rmarkdown::render(temp_rmd,
-                         output_file = file,
-                         quiet = TRUE)
-        
+        writeLines(decision_report_rmd(rec, input$study_name), temp_rmd, useBytes = TRUE)
+        rmarkdown::render(temp_rmd, output_file = file, quiet = TRUE)
         unlink(temp_rmd)
       }
     )
+
+    invisible(list(recommendation = recommendation))
   })
+}
+
+#' Note shown on a tab that received settings from the Decision Tree
+#'
+#' @param handover NULL, or list(design = design name, details = character
+#'   vector, action = optional next action)
+#' @param dismiss_id Namespaced id of the dismiss link
+handover_note_ui <- function(handover, dismiss_id) {
+  if (is.null(handover)) return(NULL)
+  div(
+    class = "alert alert-light border small",
+    tags$strong(paste0("Settings from the Decision Tree (", handover$design, "): ")),
+    paste0(paste(handover$details, collapse = "; "), ". ",
+           "Check them against your study and change any value as needed",
+           if (!is.null(handover$action)) paste0(", ", handover$action) else "", ". "),
+    actionLink(dismiss_id, "Dismiss")
+  )
+}
+
+#' R Markdown source of the decision tree PDF report
+decision_report_rmd <- function(rec, study_name = "") {
+  study <- if (is.null(study_name)) "" else trimws(study_name)
+  # YAML single-quoted string: double any single quote; drop characters LaTeX cannot print
+  yaml_title <- gsub("'", "''", ascii_text(if (study != "") paste(study, "- Sampling Design") else "Sampling Design"))
+  bullets <- function(x) paste0("- ", ascii_text(x), collapse = "\n")
+  des <- DESIGNS[[rec$design]]
+  a <- rec$answers
+  answers <- vapply(rec$applicable, function(q) {
+    paste0("- **", DECISION_QUESTIONS[[q]], "** ", ascii_text(decision_label(q, a[[q]])),
+           if (q == "reporting" && "other" %in% a$reporting && nzchar(trimws(a$other_group))) paste0(" (", ascii_text(trimws(a$other_group)), ")") else "")
+  }, character(1))
+  ho <- rec$handover
+  next_steps <- c(
+    if (!is.null(ho$calculator) && ho$calculator$target == "evaluation")
+      paste0("Calculate the sample size in the Evaluation Calculator (design: ", EVALUATION_DESIGN_LABELS[[ho$calculator$design]], ")."),
+    if (!is.null(ho$calculator) && ho$calculator$target == "sample") "Calculate the sample size in the Sample Calculator.",
+    if (!is.null(ho$generator)) paste0("Draw the sample in the Sample Generator",
+                                       if (length(ho$generator$strata)) paste0(" (strata: ", paste(ho$generator$strata, collapse = ", "), ")") else "", "."),
+    paste0("Follow the field protocols in the Sampling Guideline: ",
+           paste(vapply(rec$protocols, function(x) WIKI_ARTICLES[[x]]$title, character(1)), collapse = ", "), ".")
+  )
+  paste0(
+    "---\n", "title: '", yaml_title, "'\n", "date: '", format(Sys.time(), "%B %d, %Y"), "'\n",
+    "output:\n  pdf_document: default\n", "---\n\n",
+    "## Study\n\n", "**Study name:** ", if (study != "") ascii_text(study) else "Not specified", "\n\n",
+    paste(answers, collapse = "\n"), "\n\n",
+    "## Recommended Design: ", ascii_text(des$name), "\n\n",
+    "*Category: ", des$category, if (!is.null(rec$evaluation)) paste0(". Evaluation design: ", EVALUATION_DESIGN_LABELS[[rec$evaluation]]), ".*\n\n",
+    "### How to Select the Sample\n\n", paste0(seq_along(rec$stages), ". ", ascii_text(rec$stages), collapse = "\n"), "\n\n",
+    "### Why This Design\n\n", bullets(rec$reasons), "\n\n",
+    if (length(rec$alternatives)) paste0("### Alternatives, and When to Switch\n\n", bullets(rec$alternatives), "\n\n") else "",
+    if (length(rec$warnings)) paste0("### Points to Watch\n\n", bullets(rec$warnings), "\n\n") else "",
+    "### About This Design\n\n", "**When to use:** ", ascii_text(des$when), "\n\n", "**List needed:** ", ascii_text(des$needs), "\n\n",
+    "**Common field problems:**\n\n", bullets(des$field), "\n\n",
+    "## Next Steps\n\n", bullets(next_steps), "\n\n",
+    "\n*Generated by the ATR Sampling Tool", if (exists("app_version")) paste0(" (version ", app_version(), ")") else "", ".*\n"
+  )
 }

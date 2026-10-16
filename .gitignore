@@ -34,11 +34,12 @@ Thumbs.db
 *.swp
 *.swo
 
-# Data files (uncomment if you want to exclude data)
-# *.csv
-# *.xlsx
-# *.xls
-# data/
+# Data files (frames may contain personal data; never commit them)
+*.csv
+*.xlsx
+*.xls
+data/
+resources_temp/
 
 # Output files
 output/
@@ -93,3 +94,7 @@ venv.bak/
 *.fdb_latexmk
 *.fls
 *.synctex.gz
+
+# Playwright UI check: installed packages and screenshots
+tests/playwright/node_modules/
+tests/playwright/screenshots/

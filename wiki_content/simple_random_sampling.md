@@ -2,12 +2,12 @@
 
 ## Overview
 
-Simple random sampling is the most basic form of probability sampling, where every unit in the population has an equal and independent chance of being selected for the sample.
+Simple random sampling is the most basic form of probability sampling, where every unit in the population has an equal chance of being selected, and every possible sample of size n is equally likely.
 
 ## Key Characteristics
 
 - **Equal Probability**: Every unit has the same probability of selection
-- **Independence**: Selection of one unit doesn't affect the selection of another
+- **Without Replacement**: Each unit can be selected only once (selections are not strictly independent, which the finite population correction accounts for)
 - **Random Selection**: Units are chosen using a random process
 - **No Bias**: No systematic patterns in selection
 
@@ -105,13 +105,12 @@ n_adjusted = n / (1 + (n-1)/N)
 
 ## Best Practices
 
-1. **Use Random Number Generators**: Avoid manual selection
+1. **Use Random Number Generators or a specialized software**: Avoid manual selection
 2. **Document Everything**: Keep detailed records
 3. **Plan for Non-Response**: Anticipate and address
 4. **Validate Results**: Check for unexpected patterns
 5. **Consider Alternatives**: Evaluate other sampling methods
-6. **Pilot Test**: Try the process on a small scale first
-7. **Quality Assurance**: Implement checks and balances
+6. **Quality Assurance**: Implement checks and balances
 
 ## Tools and Software
 

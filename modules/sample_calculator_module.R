@@ -1,112 +1,14 @@
 # Sample Size Calculator Module
-# Calculators for different sampling methods
+# Monitoring calculator: sample size for a target margin of error.
+# The formulas are in sample_size_functions.R.
 
-# Sample size calculation functions
-calculate_simple_random_sample_size <- function(N, p = 0.5, confidence_level = 0.95, margin_error = 0.05, non_response_rate = 0.05) {
-  z <- qnorm(1 - (1 - confidence_level) / 2)
-  n <- (z^2 * p * (1 - p)) / (margin_error^2)
-  n_adjusted <- n / (1 + (n - 1) / N)
-  # Apply non-response rate adjustment
-  n_final <- n_adjusted / (1 - non_response_rate)
-  return(ceiling(n_final))
-}
-
-calculate_stratified_sample_size <- function(strata_data, p = 0.5, confidence_level = 0.95, margin_error = 0.05, non_response_rate = 0.05) {
-  # Calculate sample size for each stratum based on its population size
-  total_sample_size <- 0
-  
-  for (i in 1:nrow(strata_data)) {
-    N_stratum <- strata_data$Population[i]
-    n_stratum <- calculate_simple_random_sample_size(N_stratum, p, confidence_level, margin_error, non_response_rate)
-    total_sample_size <- total_sample_size + n_stratum
+# Dashed reference line for plotly charts: horizontal at y, or vertical at x
+plotly_reference_line <- function(y = NULL, x = NULL, color = "#C73E1D", dash = "dash") {
+  if (!is.null(y)) {
+    list(type = "line", xref = "paper", x0 = 0, x1 = 1, y0 = y, y1 = y, line = list(color = color, dash = dash))
+  } else {
+    list(type = "line", yref = "paper", y0 = 0, y1 = 1, x0 = x, x1 = x, line = list(color = color, dash = dash))
   }
-  
-  return(total_sample_size)
-}
-
-calculate_cluster_sample_size <- function(N, p = 0.5, confidence_level = 0.95, margin_error = 0.05, 
-                                        cluster_size = 10, icc = 0.06, non_response_rate = 0.05) {
-  z <- qnorm(1 - (1 - confidence_level) / 2)
-  n <- (z^2 * p * (1 - p)) / (margin_error^2)
-  dess <- 1 + (cluster_size - 1) * icc
-  n_cluster <- n * dess
-  n_adjusted <- n_cluster / (1 + (n_cluster - 1) / N)
-  # Apply non-response rate adjustment
-  n_final <- n_adjusted / (1 - non_response_rate)
-  return(ceiling(n_final))
-}
-
-calculate_stratified_cluster_sample_size <- function(strata_data, p = 0.5, confidence_level = 0.95, margin_error = 0.05, 
-                                                   cluster_size = 10, icc = 0.06, non_response_rate = 0.05) {
-  # Calculate sample size for each stratum based on its population size
-  total_sample_size <- 0
-  
-  for (i in 1:nrow(strata_data)) {
-    N_stratum <- strata_data$Population[i]
-    n_stratum <- calculate_cluster_sample_size(N_stratum, p, confidence_level, margin_error, cluster_size, icc, non_response_rate)
-    total_sample_size <- total_sample_size + n_stratum
-  }
-  
-  return(total_sample_size)
-}
-
-# Function to create stratified sampling breakdown table
-create_stratified_breakdown <- function(strata_data, p, confidence_level, margin_error, method_type = "stratified", cluster_size = 10, icc = 0.06, non_response_rate = 0.05) {
-  # Calculate sample size for each stratum
-  sample_sizes <- numeric(nrow(strata_data))
-  
-  for (i in 1:nrow(strata_data)) {
-    N_stratum <- strata_data$Population[i]
-    
-    if (method_type == "stratified") {
-      sample_sizes[i] <- calculate_simple_random_sample_size(N_stratum, p, confidence_level, margin_error, non_response_rate)
-    } else if (method_type == "stratified_cluster") {
-      sample_sizes[i] <- calculate_cluster_sample_size(N_stratum, p, confidence_level, margin_error, cluster_size, icc, non_response_rate)
-    }
-  }
-  
-  # Create breakdown table
-  breakdown_data <- data.frame(
-    Stratum = strata_data$Stratum,
-    Population_Size = strata_data$Population,
-    Sample_Size = sample_sizes,
-    Sampling_Fraction = round(sample_sizes / strata_data$Population * 100, 2),
-    Confidence_Level = rep(confidence_level * 100, nrow(strata_data)),
-    Margin_of_Error = rep(margin_error * 100, nrow(strata_data)),
-    Expected_Proportion = rep(p, nrow(strata_data)),
-    Non_Response_Rate = rep(non_response_rate * 100, nrow(strata_data)),
-    Method = rep(method_type, nrow(strata_data))
-  )
-  
-  # Add design effect information for stratified cluster sampling
-  if (method_type == "stratified_cluster") {
-    dess <- 1 + (cluster_size - 1) * icc
-    breakdown_data$Cluster_Size <- rep(cluster_size, nrow(strata_data))
-    breakdown_data$ICC <- rep(round(icc, 3), nrow(strata_data))
-    breakdown_data$Design_Effect <- rep(round(dess, 3), nrow(strata_data))
-    
-    # Reorder columns to put Method at the end
-    breakdown_data <- breakdown_data[, c("Stratum", "Population_Size", "Sample_Size", "Sampling_Fraction", 
-                                        "Confidence_Level", "Margin_of_Error", "Expected_Proportion", 
-                                        "Non_Response_Rate", "Cluster_Size", "ICC", "Design_Effect", "Method")]
-  }
-  
-  return(breakdown_data)
-}
-
-# Default theme for ggplot2
-theme_sampling <- function() {
-  theme_minimal() +
-    theme(
-      plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-      plot.subtitle = element_text(size = 12, hjust = 0.5),
-      axis.title = element_text(size = 12, face = "bold"),
-      axis.text = element_text(size = 10),
-      legend.title = element_text(size = 12, face = "bold"),
-      legend.text = element_text(size = 10),
-      panel.grid.major = element_line(color = "grey90", linewidth = 0.5),
-      panel.grid.minor = element_line(color = "grey95", linewidth = 0.25)
-    )
 }
 
 sample_calculator_ui <- function(id) {
@@ -197,10 +99,11 @@ sample_calculator_ui <- function(id) {
       div(
         class = "col-12",
         h2("Sample Size Calculator", class = "text-center mb-3"),
-        p("Calculate the required sample size for your study using different sampling methods.", 
+        p("Calculate the required sample size for your study using different sampling methods.",
           class = "text-center text-muted")
       )
     ),
+    uiOutput(ns("handover_note")),
     
     # Method selection
     div(
@@ -273,6 +176,16 @@ sample_calculator_ui <- function(id) {
               div(
                 class = "col-md-6",
                 h6("Basic Parameters"),
+                radioButtons(
+                  ns("indicator_type"),
+                  "Key indicator",
+                  choices = list(
+                    "Proportion (e.g. % of households receiving aid)" = "proportion",
+                    "Mean (e.g. income, yield)" = "mean"
+                  ),
+                  selected = "proportion",
+                  inline = TRUE
+                ),
                 div(
                   class = "row g-2",
                   div(
@@ -296,7 +209,9 @@ sample_calculator_ui <- function(id) {
                       step = 0.01
                     )
                   ),
-                  div(
+                  conditionalPanel(
+                    condition = "input.indicator_type != 'mean'",
+                    ns = ns,
                     class = "col-md-6",
                     numericInput(
                       ns("margin_error"),
@@ -307,7 +222,9 @@ sample_calculator_ui <- function(id) {
                       step = 0.01
                     )
                   ),
-                  div(
+                  conditionalPanel(
+                    condition = "input.indicator_type != 'mean'",
+                    ns = ns,
                     class = "col-md-6",
                     numericInput(
                       ns("expected_proportion"),
@@ -317,6 +234,32 @@ sample_calculator_ui <- function(id) {
                       max = 0.99,
                       step = 0.01
                     )
+                  ),
+                  conditionalPanel(
+                    condition = "input.indicator_type == 'mean'",
+                    ns = ns,
+                    class = "col-md-6",
+                    numericInput(
+                      ns("margin_error_mean"),
+                      "Margin of Error (in the indicator's units)",
+                      value = 5,
+                      min = 0,
+                      step = 1
+                    )
+                  ),
+                  conditionalPanel(
+                    condition = "input.indicator_type == 'mean'",
+                    ns = ns,
+                    class = "col-md-6",
+                    numericInput(
+                      ns("indicator_sd"),
+                      "Standard Deviation (σ)",
+                      value = 50,
+                      min = 0,
+                      step = 1
+                    ),
+                    p("Take σ from a previous survey of the same indicator, or use (max - min) / 4 as a rough guess.",
+                      class = "text-muted small")
                   ),
                   div(
                     class = "col-md-6",
@@ -367,6 +310,12 @@ sample_calculator_ui <- function(id) {
                         placeholder = "No file selected"
                       ),
                       div(
+                        class = "alert alert-warning small",
+                        tags$strong("Data protection: "),
+                        "This app runs on a public cloud host. Do not upload names, phone numbers, GPS points or other identifiers. ",
+                        "Use anonymised IDs and link back to the full list offline."
+                      ),
+                      div(
                         id = ns("file_info"),
                         style = "display: none;",
                         div(
@@ -384,7 +333,60 @@ sample_calculator_ui <- function(id) {
               div(
                 class = "col-12",
                 h6("Method-Specific Parameters"),
-                
+
+                # Precision target and allocation (both stratified methods)
+                conditionalPanel(
+                  condition = "input.sampling_method == 'stratified' || input.sampling_method == 'stratified_cluster'",
+                  ns = ns,
+                  div(
+                    class = "row g-2 mb-2",
+                    div(
+                      class = "col-md-5",
+                      radioButtons(
+                        ns("precision_target"),
+                        "Precision target",
+                        choices = list(
+                          "Each stratum (report every stratum separately)" = "per_stratum",
+                          "Whole population only (split one sample across strata)" = "total"
+                        ),
+                        selected = "per_stratum"
+                      )
+                    ),
+                    conditionalPanel(
+                      condition = "input.precision_target == 'total'",
+                      ns = ns,
+                      class = "col-md-7",
+                      div(
+                        class = "row g-2",
+                        div(
+                          class = "col-md-6",
+                          selectInput(
+                            ns("strata_allocation"),
+                            "Allocation across strata",
+                            choices = list(
+                              "Proportional to size" = "proportional",
+                              "Neyman (optimal)" = "neyman",
+                              "Equal" = "equal"
+                            ),
+                            selected = "proportional"
+                          )
+                        ),
+                        div(
+                          class = "col-md-6",
+                          numericInput(ns("min_per_stratum"), "Minimum completed interviews per stratum",
+                                       value = 0, min = 0, step = 1)
+                        )
+                      ),
+                      p("Neyman puts more interviews in large and more variable strata. It needs an expected p (or σ) per ",
+                        "stratum; strata left blank use the common value, and with one common value Neyman equals proportional.",
+                        class = "text-muted small")
+                    )
+                  ),
+                  p("\"Each stratum\" sizes every stratum to reach the margin of error, so totals add up and are larger. ",
+                    "\"Whole population only\" is cheaper, but single strata will have wider margins (shown in the breakdown).",
+                    class = "text-muted small")
+                ),
+
                 # Stratified sampling parameters
                 div(
                   id = ns("stratified_params"),
@@ -436,6 +438,12 @@ sample_calculator_ui <- function(id) {
                           "Population Variable",
                           choices = c("Select a column..." = ""),
                           width = "100%"
+                        ),
+                        selectInput(
+                          ns("stratified_variability_column"),
+                          "Expected p or σ by stratum (optional)",
+                          choices = c("None (use the common value)" = ""),
+                          width = "100%"
                         )
                       )
                     )
@@ -448,7 +456,7 @@ sample_calculator_ui <- function(id) {
                   style = "display: none;",
                   numericInput(
                     ns("cluster_size"),
-                    "Cluster Size",
+                    "Interviews per Cluster (m)",
                     value = 10,
                     min = 2,
                     step = 1
@@ -514,7 +522,7 @@ sample_calculator_ui <- function(id) {
                         ),
                         numericInput(
                           ns("cluster_size_stratified"),
-                          "Cluster Size",
+                          "Interviews per Cluster (m)",
                           value = 10,
                           min = 2,
                           step = 1
@@ -548,9 +556,15 @@ sample_calculator_ui <- function(id) {
                           choices = c("Select a column..." = ""),
                           width = "100%"
                         ),
+                        selectInput(
+                          ns("stratified_cluster_variability_column"),
+                          "Expected p or σ by stratum (optional)",
+                          choices = c("None (use the common value)" = ""),
+                          width = "100%"
+                        ),
                         numericInput(
                           ns("cluster_size_stratified_upload"),
-                          "Cluster Size",
+                          "Interviews per Cluster (m)",
                           value = 10,
                           min = 2,
                           step = 1
@@ -733,18 +747,26 @@ sample_calculator_server <- function(id, study_name = NULL) {
       for (i in 1:nrow(data)) {
         stratum_name_id <- paste0("stratum_name_", i)
         stratum_pop_id <- paste0("stratum_pop_", i)
-        
+        stratum_var_id <- paste0("stratum_var_", i)
+        # Keep a value already typed in when the strata inputs are redrawn
+        var_value <- isolate(input[[stratum_var_id]])
+        if (is.null(var_value)) var_value <- NA
+
         input_elements[[i]] <- div(
           class = "stratum-input-group",
           div(
             class = "row",
             div(
-              class = "col-md-6",
+              class = "col-md-5",
               textInput(ns(stratum_name_id), "Stratum Name", value = data$Stratum[i])
             ),
             div(
-              class = "col-md-6",
+              class = "col-md-4",
               numericInput(ns(stratum_pop_id), "Population", value = data$Population[i], min = 1)
+            ),
+            div(
+              class = "col-md-3",
+              numericInput(ns(stratum_var_id), "p or σ (optional)", value = var_value, min = 0)
             )
           )
         )
@@ -843,15 +865,17 @@ sample_calculator_server <- function(id, study_name = NULL) {
           document.getElementById("', session$ns("file_info"), '").style.display = "block";
         '))
         
-        # Show uploaded data section and update dropdown choices based on current method
+        # Show uploaded data section and fill the dropdowns of both stratified methods
         if (input$sampling_method == "stratified") {
           showElement("uploaded_data_section")
-          updateSelectInput(session, "stratified_strata_column", choices = c("Select a column..." = "", column_names()))
-          updateSelectInput(session, "stratified_population_column", choices = c("Select a column..." = "", column_names()))
         } else if (input$sampling_method == "stratified_cluster") {
           showElement("uploaded_data_cluster_section")
-          updateSelectInput(session, "stratified_cluster_strata_column", choices = c("Select a column..." = "", column_names()))
-          updateSelectInput(session, "stratified_cluster_population_column", choices = c("Select a column..." = "", column_names()))
+        }
+        for (prefix in c("stratified", "stratified_cluster")) {
+          updateSelectInput(session, paste0(prefix, "_strata_column"), choices = c("Select a column..." = "", column_names()))
+          updateSelectInput(session, paste0(prefix, "_population_column"), choices = c("Select a column..." = "", column_names()))
+          updateSelectInput(session, paste0(prefix, "_variability_column"),
+                            choices = c("None (use the common value)" = "", column_names()))
         }
         
       }, error = function(e) {
@@ -1029,31 +1053,6 @@ sample_calculator_server <- function(id, study_name = NULL) {
       }
     })
     
-    # Function to update strata data from dynamic inputs
-    update_strata_from_inputs <- function(container_id, strata_reactive_val) {
-      ns <- session$ns
-      
-      # JavaScript to capture input values and send to R
-      js_code <- paste0("
-        var strataData = [];
-        $('#", ns(container_id), " .stratum-input-group').each(function(index) {
-          var nameInput = $(this).find('input[type=\"text\"]');
-          var popInput = $(this).find('input[type=\"number\"]');
-          
-          if (nameInput.length > 0 && popInput.length > 0) {
-            strataData.push({
-              stratum: nameInput.val() || 'Stratum ' + (index + 1),
-              population: parseInt(popInput.val()) || 1000
-            });
-          }
-        });
-        
-        Shiny.setInputValue('", ns("strata_input_data"), "', strataData, {priority: 'event'});
-      ")
-      
-      shinyjs::runjs(js_code)
-    }
-    
     # Observer to capture strata input data from Shiny inputs
     observe({
       if (input$sampling_method == "stratified") {
@@ -1126,1285 +1125,328 @@ sample_calculator_server <- function(id, study_name = NULL) {
       }
     })
     
-    # Calculate sample size
-    calculate_sample_size <- reactive({
-      req(input$population_size, input$confidence_level, input$margin_error, input$expected_proportion)
-      
-      N <- input$population_size
-      p <- input$expected_proportion
-      confidence_level <- input$confidence_level
-      margin_error <- input$margin_error
-      
-      if (input$sampling_method == "simple_random") {
-        non_response_rate <- input$non_response_rate / 100  # Convert percentage to decimal
-        n <- calculate_simple_random_sample_size(N, p, confidence_level, margin_error, non_response_rate)
-        method_name <- "Simple Random Sampling"
-        
-      } else if (input$sampling_method == "stratified") {
-        # Use uploaded data if data input method is upload and columns are selected
-        if (input$data_input_method == "upload" && 
-            !is.null(uploaded_data()) && 
-            input$stratified_strata_column != "" && 
-            input$stratified_population_column != "") {
-          
-          # Extract strata data from uploaded file
-          strata_col <- input$stratified_strata_column
-          pop_col <- input$stratified_population_column
-          
-          # Check if population column is numeric
-          if (!is.numeric(uploaded_data()[[pop_col]])) {
-            showNotification("Population column must be numeric.", type = "error")
-            return(NULL)
-          }
+    # TRUE when the stratified sample size should come from the uploaded file
+    using_upload <- function(prefix = input$sampling_method) {
+      isTRUE(input$data_input_method == "upload") && !is.null(uploaded_data()) &&
+        !is_blank_input(input[[paste0(prefix, "_strata_column")]]) &&
+        !is_blank_input(input[[paste0(prefix, "_population_column")]])
+    }
 
-          # Create strata summary using base R approach to avoid dplyr conflicts
-          strata_summary <- aggregate(uploaded_data()[[pop_col]], 
-                                    by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                    FUN = sum, na.rm = TRUE)
-          names(strata_summary)[2] <- "Population"
-          
-          non_response_rate <- input$non_response_rate / 100  # Convert percentage to decimal
-          n <- calculate_stratified_sample_size(strata_summary, p, confidence_level, margin_error, non_response_rate)
-          method_name <- "Stratified Sampling"
-        } else {
-          # Use manual strata data
-          non_response_rate <- input$non_response_rate / 100  # Convert percentage to decimal
-          n <- calculate_stratified_sample_size(strata_data(), p, confidence_level, margin_error, non_response_rate)
-          method_name <- "Stratified Sampling"
+    # Strata for the current method: uploaded file (summed by stratum) or manual entry.
+    # Variability is the expected p (or sd for a mean) per stratum, NA for "use the common value".
+    current_strata <- reactive({
+      prefix <- input$sampling_method
+      if (using_upload(prefix)) {
+        d <- uploaded_data()
+        strata_col <- input[[paste0(prefix, "_strata_column")]]
+        pop_col <- input[[paste0(prefix, "_population_column")]]
+        if (!is.numeric(d[[pop_col]])) stop("Population column must be numeric.")
+        out <- aggregate(d[[pop_col]], by = list(Stratum = d[[strata_col]]), FUN = sum, na.rm = TRUE)
+        names(out)[2] <- "Population"
+        out$Stratum <- as.character(out$Stratum)
+        var_col <- input[[paste0(prefix, "_variability_column")]]
+        out$Variability <- NA_real_
+        if (!is_blank_input(var_col)) {
+          if (!is.numeric(d[[var_col]])) stop("The p / σ column must be numeric.")
+          v <- tapply(d[[var_col]], as.character(d[[strata_col]]), mean, na.rm = TRUE)
+          out$Variability <- as.numeric(v[out$Stratum])
         }
-        
-      } else if (input$sampling_method == "cluster") {
-        cluster_size <- input$cluster_size
-        icc <- input$intraclass_correlation
-        
-        # Use uploaded data if available and columns are selected
-        if (!is.null(uploaded_data()) && 
-            input$cluster_population_column != "" && 
-            input$cluster_name_column != "") {
-          
-          # Calculate total population from uploaded data
-          pop_col <- input$cluster_population_column
-          N <- sum(uploaded_data()[[pop_col]], na.rm = TRUE)
-        }
-        
-        non_response_rate <- input$non_response_rate / 100  # Convert percentage to decimal
-        n <- calculate_cluster_sample_size(N, p, confidence_level, margin_error, cluster_size, icc, non_response_rate)
-        method_name <- if (!is.null(uploaded_data()) && 
-                          input$cluster_population_column != "" && 
-                          input$cluster_name_column != "") {
-          "Cluster Sampling"
-        } else {
-          "Cluster Sampling"
-        }
-        
-      } else if (input$sampling_method == "stratified_cluster") {
-        # Use uploaded data if data input method is upload and columns are selected
-        if (input$data_input_method == "upload" && 
-            !is.null(uploaded_data()) && 
-            input$stratified_cluster_strata_column != "" && 
-            input$stratified_cluster_population_column != "") {
-          
-          cluster_size <- input$cluster_size_stratified_upload
-          icc <- input$intraclass_correlation_stratified_upload
-          
-          # Extract strata data from uploaded file
-          strata_col <- input$stratified_cluster_strata_column
-          pop_col <- input$stratified_cluster_population_column
-          
-          # Check if population column is numeric
-          if (!is.numeric(uploaded_data()[[pop_col]])) {
-            showNotification("Population column must be numeric.", type = "error")
-            return(NULL)
-          }
-
-          # Create strata summary using base R approach to avoid dplyr conflicts
-          strata_summary <- aggregate(uploaded_data()[[pop_col]], 
-                                    by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                    FUN = sum, na.rm = TRUE)
-          names(strata_summary)[2] <- "Population"
-          
-          non_response_rate <- input$non_response_rate / 100  # Convert percentage to decimal
-          n <- calculate_stratified_cluster_sample_size(strata_summary, p, confidence_level, margin_error, cluster_size, icc, non_response_rate)
-          method_name <- "Stratified Cluster Sampling"
-        } else {
-          # Use manual strata data
-          cluster_size <- input$cluster_size_stratified
-          icc <- input$intraclass_correlation_stratified
-          non_response_rate <- input$non_response_rate / 100  # Convert percentage to decimal
-          n <- calculate_stratified_cluster_sample_size(strata_data_cluster(), p, confidence_level, margin_error, cluster_size, icc, non_response_rate)
-          method_name <- "Stratified Cluster Sampling"
-        }
-        
-      } else if (input$sampling_method == "systematic") {
-        non_response_rate <- input$non_response_rate / 100  # Convert percentage to decimal
-        n <- calculate_simple_random_sample_size(N, p, confidence_level, margin_error, non_response_rate)
-        method_name <- "Systematic Sampling"
+        out
+      } else {
+        out <- if (prefix == "stratified") strata_data() else strata_data_cluster()
+        out$Variability <- vapply(seq_len(nrow(out)), function(i) {
+          v <- input[[paste0("stratum_var_", i)]]
+          if (is.null(v) || is.na(v)) NA_real_ else as.numeric(v)
+        }, numeric(1))
+        out
       }
-      
-      return(list(
-        sample_size = n,
-        method_name = method_name,
-        population_size = N,
-        confidence_level = confidence_level,
-        margin_error = margin_error,
-        expected_proportion = p,
-        non_response_rate = input$non_response_rate / 100
-      ))
     })
-    
+
+    # Interviews per cluster and ICC for the current method
+    cluster_params <- function() {
+      if (input$sampling_method == "cluster") {
+        list(m = input$cluster_size, icc = input$intraclass_correlation)
+      } else if (using_upload("stratified_cluster")) {
+        list(m = input$cluster_size_stratified_upload, icc = input$intraclass_correlation_stratified_upload)
+      } else {
+        list(m = input$cluster_size_stratified, icc = input$intraclass_correlation_stratified)
+      }
+    }
+
+    # Calculate sample size (all outputs and downloads use this one result)
+    calculate_sample_size <- reactive({
+      req(input$sampling_method, input$confidence_level)
+      method <- input$sampling_method
+      is_mean <- identical(input$indicator_type, "mean")
+      spec <- list(
+        method = method,
+        N = input$population_size,
+        confidence_level = input$confidence_level,
+        margin_error = if (is_mean) input$margin_error_mean else input$margin_error,
+        indicator = if (is_mean) "mean" else "proportion",
+        p = input$expected_proportion,
+        sd = input$indicator_sd,
+        non_response_rate = input$non_response_rate / 100,
+        target = if (is.null(input$precision_target)) "per_stratum" else input$precision_target,
+        allocation = if (is.null(input$strata_allocation)) "proportional" else input$strata_allocation,
+        min_per_stratum = if (is.null(input$min_per_stratum) || is.na(input$min_per_stratum)) 0 else input$min_per_stratum
+      )
+
+      n_source <- NULL
+      if (method == "cluster" && !is.null(uploaded_data()) &&
+          !is_blank_input(input$cluster_population_column) && !is_blank_input(input$cluster_name_column)) {
+        pop_col <- input$cluster_population_column
+        spec$N <- sum(uploaded_data()[[pop_col]], na.rm = TRUE)
+        n_source <- paste0("N = ", format(spec$N, big.mark = ","), " was taken from the uploaded file (sum of \"", pop_col,
+                           "\"), not from the Population Size box.")
+      }
+      if (method %in% c("cluster", "stratified_cluster")) {
+        cp <- cluster_params()
+        spec$cluster_size <- cp$m
+        spec$icc <- cp$icc
+      }
+
+      res <- tryCatch({
+        if (method %in% c("stratified", "stratified_cluster")) spec$strata <- current_strata()
+        monitoring_calculation(spec)
+      }, error = function(e) e)
+      if (inherits(res, "error")) validate(need(FALSE, conditionMessage(res)))
+
+      res$n_source <- n_source
+      if (!is.null(n_source)) res$explanation <- paste(res$explanation, n_source)
+      res
+    })
+
+    # Breakdown table with readable column names and formatted margins
+    display_breakdown <- function(results) {
+      b <- results$breakdown
+      if (is.null(b)) return(NULL)
+      b$Expected_Margin_of_Error <- if (results$indicator == "mean") {
+        signif(b$Expected_Margin_of_Error, 4)
+      } else {
+        paste0(round(b$Expected_Margin_of_Error * 100, 2), "%")
+      }
+      names(b) <- gsub("_pct$", " (%)", names(b))
+      names(b) <- gsub("_", " ", names(b))
+      b
+    }
+
     # Update results when calculate button is clicked
     observeEvent(input$calculate, {
-      results <- calculate_sample_size()
-      
-      # Update sample size display
-      shinyjs::runjs(paste0("
-        $('#", session$ns("sample_size_result"), "').text('", results$sample_size, "');
-      "))
-      
-      # Update explanation
-      explanation <- paste0(
-        "For a population of ", format(results$population_size, big.mark = ","), 
-        " with ", results$confidence_level * 100, "% confidence level and ", 
-        results$margin_error * 100, "% margin of error, you need a sample size of ",
-        results$sample_size, " using ", results$method_name, 
-        " (adjusted for ", input$non_response_rate, "% non-response rate)."
-      )
-      
-      # Add design effect information for cluster sampling methods
-      if (input$sampling_method %in% c("cluster", "stratified_cluster")) {
-        cluster_size <- if (input$sampling_method == "cluster") input$cluster_size else input$cluster_size_stratified
-        icc <- if (input$sampling_method == "cluster") input$intraclass_correlation else input$intraclass_correlation_stratified
-        dess <- 1 + (cluster_size - 1) * icc
-        
-        explanation <- paste0(
-          explanation, 
-          " Design Effect (DEFF): ", round(dess, 3), 
-          " (Cluster Size: ", cluster_size, ", ICC: ", round(icc, 3), ")."
-        )
-      }
-      shinyjs::runjs(paste0("
-        $('#", session$ns("sample_size_explanation"), "').text('", explanation, "');
-      "))
-      
+      results <- tryCatch(calculate_sample_size(), error = function(e) {
+        showNotification(conditionMessage(e), type = "error", duration = 8)
+        NULL
+      })
+      req(results)
+
+      shinyjs::html("sample_size_result", results$sample_size)
+      shinyjs::html("sample_size_explanation", htmltools::htmlEscape(results$explanation))
+
       # Show results container
       showElement("results_container")
-      
+
       # Show stratified breakdown if applicable
-      if (input$sampling_method %in% c("stratified", "stratified_cluster")) {
+      if (!is.null(results$breakdown)) {
         showElement("stratified_breakdown_section")
       } else {
         hideElement("stratified_breakdown_section")
       }
     })
-    
-    # Sample size plot
+
+    # Sample size plot (native plotly: ggplotly breaks with some ggplot2/plotly version pairs)
     output$sample_size_plot <- renderPlotly({
       results <- calculate_sample_size()
-      
-      if (input$sampling_method %in% c("stratified", "stratified_cluster")) {
-        # Specialized plot for stratified sampling
-        p <- create_stratified_plot(results)
-      } else {
-        # Standard plot for other sampling methods
-        p <- create_standard_plot(results)
-      }
-      
-      ggplotly(p, tooltip = c("x", "y", "text"))
+      if (!is.null(results$breakdown)) create_stratified_plot(results) else create_standard_plot(results)
     })
-    
-    # Function to create stratified sampling plot
-    create_stratified_plot <- function(results) {
-      # Get strata data - use uploaded data if available
-      if (input$sampling_method == "stratified") {
-        # Use uploaded data if data input method is upload and columns are selected
-        if (input$data_input_method == "upload" && 
-            !is.null(uploaded_data()) && 
-            input$stratified_strata_column != "" && 
-            input$stratified_population_column != "") {
-          
-          # Extract strata data from uploaded file
-          strata_col <- input$stratified_strata_column
-          pop_col <- input$stratified_population_column
-          
-          # Create strata summary using base R approach to avoid dplyr conflicts
-          current_strata_data <- aggregate(uploaded_data()[[pop_col]], 
-                                        by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                        FUN = sum, na.rm = TRUE)
-          names(current_strata_data)[2] <- "Population"
-        } else {
-          current_strata_data <- strata_data()
-        }
-      } else {
-        # Use uploaded data if data input method is upload and columns are selected
-        if (input$data_input_method == "upload" && 
-            !is.null(uploaded_data()) && 
-            input$stratified_cluster_strata_column != "" && 
-            input$stratified_cluster_population_column != "") {
-          
-          # Extract strata data from uploaded file
-          strata_col <- input$stratified_cluster_strata_column
-          pop_col <- input$stratified_cluster_population_column
-          
-          # Create strata summary using base R approach to avoid dplyr conflicts
-          current_strata_data <- aggregate(uploaded_data()[[pop_col]], 
-                                        by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                        FUN = sum, na.rm = TRUE)
-          names(current_strata_data)[2] <- "Population"
-        } else {
-          current_strata_data <- strata_data_cluster()
-        }
-      }
-      
-      
-      # Create data for visualization
-      sample_sizes <- seq(100, min(results$population_size, 5000), by = 100)
-      
-      # Calculate margins for each stratum
-      plot_data <- data.frame()
-      colors <- c("#2E86AB", "#C73E1D", "#F18F01", "#C73E1D", "#7209B7", "#F72585", "#4CC9F0", "#06FFA5")
-      
-      for (i in 1:nrow(current_strata_data)) {
-        stratum_name <- current_strata_data$Stratum[i]
-        stratum_pop <- current_strata_data$Population[i]
-        
-        # Calculate sample size for this stratum
-        stratum_sample_size <- calculate_simple_random_sample_size(
-          stratum_pop, 
-          results$expected_proportion, 
-          results$confidence_level, 
-          results$margin_error,
-          results$non_response_rate
-        )
-        
-        # Calculate margins for this stratum
-        margins <- sapply(sample_sizes, function(n) {
-          z <- qnorm(1 - (1 - results$confidence_level) / 2)
-          sqrt((z^2 * results$expected_proportion * (1 - results$expected_proportion)) / n)
-        })
-        
-        stratum_data <- data.frame(
-          SampleSize = sample_sizes,
-          MarginOfError = margins,
-          Stratum = stratum_name,
-          StratumSampleSize = stratum_sample_size,
-          StratumPopulation = stratum_pop
-        )
-        
-        plot_data <- rbind(plot_data, stratum_data)
-      }
-      
-      # Calculate total sample size and margin
-      total_sample_size <- results$sample_size
-      z <- qnorm(1 - (1 - results$confidence_level) / 2)
-      total_margin <- sqrt((z^2 * results$expected_proportion * (1 - results$expected_proportion)) / total_sample_size)
-      
-      # Create data for dots (actual sample sizes for each stratum)
-      dots_data <- data.frame()
-      for (i in 1:nrow(current_strata_data)) {
-        stratum_name <- current_strata_data$Stratum[i]
-        stratum_pop <- current_strata_data$Population[i]
-        
-        # Use appropriate calculation method based on sampling type
-        if (input$sampling_method == "stratified") {
-          stratum_sample_size <- calculate_simple_random_sample_size(
-            stratum_pop, 
-            results$expected_proportion, 
-            results$confidence_level, 
-            results$margin_error,
-            results$non_response_rate
-          )
-        } else if (input$sampling_method == "stratified_cluster") {
-          # Use uploaded data parameters if data input method is upload
-          if (input$data_input_method == "upload" && 
-              !is.null(uploaded_data()) && 
-              input$stratified_cluster_strata_column != "" && 
-              input$stratified_cluster_population_column != "") {
-            cluster_size <- input$cluster_size_stratified_upload
-            icc <- input$intraclass_correlation_stratified_upload
-          } else {
-            cluster_size <- input$cluster_size_stratified
-            icc <- input$intraclass_correlation_stratified
-          }
-          
-          stratum_sample_size <- calculate_cluster_sample_size(
-            stratum_pop, 
-            results$expected_proportion, 
-            results$confidence_level, 
-            results$margin_error,
-            cluster_size,
-            icc,
-            results$non_response_rate
-          )
-        }
-        
-        # Calculate margin for this stratum's sample size
-        z <- qnorm(1 - (1 - results$confidence_level) / 2)
-        stratum_margin <- sqrt((z^2 * results$expected_proportion * (1 - results$expected_proportion)) / stratum_sample_size)
-        
-        dots_data <- rbind(dots_data, data.frame(
-          SampleSize = stratum_sample_size,
-          MarginOfError = stratum_margin,
-          Stratum = stratum_name,
-          Population = stratum_pop
-        ))
-      }
-      
-      # Create the plot with dots instead of lines
-      p <- ggplot(dots_data, aes(x = SampleSize, y = MarginOfError, color = Stratum)) +
-        geom_point(size = 4, alpha = 0.8) +
-        geom_hline(yintercept = results$margin_error, linetype = "dashed", color = "#333333", linewidth = 1) +
-        labs(
-          title = "Sample Size vs Margin of Error by Stratum",
-          x = "Sample Size",
-          y = "Margin of Error",
-          subtitle = paste("Target margin of error:", results$margin_error * 100, "%"),
-          color = "Stratum"
-        ) +
-        theme_sampling() +
-        theme(legend.position = "bottom") +
-        scale_color_manual(values = colors[1:nrow(current_strata_data)])
-      
-      # Add total sample size point
-      p <- p + annotate("point", x = total_sample_size, y = total_margin, 
-                       color = "#000000", size = 5, shape = 18) +
-        annotate("text", x = total_sample_size, y = total_margin + 0.002, 
-                label = "Total", color = "#000000", size = 3, hjust = 0.5, vjust = 0)
-      
-      return(p)
+
+    moe_label <- function(results, x) {
+      if (results$indicator == "mean") format(signif(x, 4)) else paste0(round(x * 100, 2), "%")
     }
-    
-    # Function to create standard plot for non-stratified methods
-    create_standard_plot <- function(results) {
-      # Create data for visualization
-      sample_sizes <- seq(100, min(results$population_size, 5000), by = 100)
-      margins <- sapply(sample_sizes, function(n) {
-        z <- qnorm(1 - (1 - results$confidence_level) / 2)
-        sqrt((z^2 * results$expected_proportion * (1 - results$expected_proportion)) / n)
-      })
-      
-      plot_data <- data.frame(
-        SampleSize = sample_sizes,
-        MarginOfError = margins
+    moe_layout <- function(p, results, title) {
+      plotly::layout(
+        p,
+        title = list(text = paste0(title, "<br><sup>Target margin of error: ", moe_label(results, results$margin_error), "</sup>")),
+        xaxis = list(title = "Sample Size"),
+        yaxis = list(title = "Expected Margin of Error", tickformat = if (results$indicator == "mean") "" else ".1%",
+                     rangemode = "tozero"),
+        shapes = list(plotly_reference_line(y = results$margin_error)),
+        legend = list(orientation = "h", y = -0.25),
+        margin = list(t = 60)
       )
-      
-      p <- ggplot(plot_data, aes(x = SampleSize, y = MarginOfError)) +
-        geom_line(color = "#2E86AB", linewidth = 1) +
-        annotate("point", x = results$sample_size, y = results$margin_error, 
-                 color = "#C73E1D", size = 3) +
-        geom_hline(yintercept = results$margin_error, linetype = "dashed", color = "#C73E1D") +
-        labs(
-          title = "Sample Size vs Margin of Error",
-          x = "Sample Size",
-          y = "Margin of Error",
-          subtitle = paste("Target margin of error:", results$margin_error * 100, "%")
-        ) +
-        theme_sampling()
-      
-      return(p)
     }
-    
+
+    # Stratified: one dot per stratum (its sample size and expected margin of error),
+    # plus a diamond for the total
+    create_stratified_plot <- function(results) {
+      b <- results$breakdown
+      b$hover <- paste0(b$Stratum, "<br>n = ", b$Sample_Size, "<br>Margin: ", moe_label(results, b$Expected_Margin_of_Error))
+      p <- plot_ly(b, x = ~Sample_Size, y = ~Expected_Margin_of_Error, color = ~Stratum, type = "scatter",
+                   mode = "markers", marker = list(size = 12, opacity = 0.8), text = ~hover, hoverinfo = "text",
+                   showlegend = nrow(b) <= 10) %>%
+        add_trace(x = results$sample_size, y = results$moe_achieved, type = "scatter", mode = "markers+text",
+                  marker = list(symbol = "diamond", size = 14, color = "#000000"), text = "Total",
+                  textposition = "top center", name = "Total", color = NULL, inherit = FALSE,
+                  hovertext = paste0("Total<br>n = ", results$sample_size, "<br>Margin: ", moe_label(results, results$moe_achieved)),
+                  hoverinfo = "text")
+      moe_layout(p, results, "Sample Size vs Margin of Error by Stratum")
+    }
+
+    # Single-stage designs: margin of error against sample size
+    create_standard_plot <- function(results) {
+      step <- if (!is.null(results$cluster_size)) results$cluster_size else 10
+      upper <- min(results$population_size, max(1000, results$sample_size * 2))
+      sample_sizes <- unique(c(seq(step, upper, length.out = 80), results$sample_size))
+      sample_sizes <- round(sort(sample_sizes[sample_sizes <= results$population_size]))
+      margins <- calculate_margin_of_error(
+        sample_sizes, results$population_size, confidence_level = results$confidence_level,
+        non_response_rate = results$non_response_rate, deff = results$deff, variance = results$variance
+      )
+
+      p <- plot_ly(x = sample_sizes, y = margins, type = "scatter", mode = "lines", name = "Expected margin of error",
+                   line = list(color = "#2E86AB", width = 2),
+                   hovertext = paste0("n = ", sample_sizes, "<br>Margin: ", moe_label(results, margins)), hoverinfo = "text") %>%
+        add_trace(x = results$sample_size, y = results$moe_achieved, type = "scatter", mode = "markers",
+                  name = "Required sample", marker = list(color = "#C73E1D", size = 10), line = NULL,
+                  hovertext = paste0("Required n = ", results$sample_size, "<br>Margin: ", moe_label(results, results$moe_achieved)))
+      moe_layout(p, results, "Sample Size vs Margin of Error")
+    }
+
     # Calculation table
     output$calculation_table <- DT::renderDataTable({
       results <- calculate_sample_size()
-      
-      # Calculate intermediate values
-      z <- qnorm(1 - (1 - results$confidence_level) / 2)
-      n0 <- (z^2 * results$expected_proportion * (1 - results$expected_proportion)) / (results$margin_error^2)
-      n_adjusted <- n0 / (1 + (n0 - 1) / results$population_size)
-      n_final <- n_adjusted / (1 - results$non_response_rate)
-      
-      # Base parameters
-      base_params <- c(
-        "Population Size (N)",
-        "Confidence Level",
-        "Margin of Error",
-        "Expected Proportion (p)",
-        "Non-Response Rate",
-        "Z-score (α/2)",
-        "Initial Sample Size (n₀)",
-        "Finite Population Correction",
-        "Sample Size (before non-response)",
-        "Final Sample Size (n)"
-      )
-      
-      base_values <- c(
-        format(results$population_size, big.mark = ","),
-        paste0(results$confidence_level * 100, "%"),
-        paste0(results$margin_error * 100, "%"),
-        results$expected_proportion,
-        paste0(results$non_response_rate * 100, "%"),
-        round(z, 3),
-        round(n0, 0),
-        round(1 + (n0 - 1) / results$population_size, 3),
-        round(n_adjusted, 0),
-        results$sample_size
-      )
-      
-      base_formulas <- c(
-        "Given",
-        "Given",
-        "Given",
-        "Given",
-        "Given",
-        "qnorm(1 - α/2)",
-        "z²p(1-p)/e²",
-        "1 + (n₀-1)/N",
-        "n₀ / FPC",
-        "n_adjusted / (1 - non_response_rate)"
-      )
-      
-      # Add cluster-specific parameters if applicable
-      if (input$sampling_method %in% c("cluster", "stratified_cluster")) {
-        # Get cluster size and ICC based on method and data input
-        if (input$sampling_method == "cluster") {
-          cluster_size <- input$cluster_size
-          icc <- input$intraclass_correlation
-        } else if (input$sampling_method == "stratified_cluster") {
-          # Use uploaded data parameters if data input method is upload
-          if (input$data_input_method == "upload" && 
-              !is.null(uploaded_data()) && 
-              input$stratified_cluster_strata_column != "" && 
-              input$stratified_cluster_population_column != "") {
-            cluster_size <- input$cluster_size_stratified_upload
-            icc <- input$intraclass_correlation_stratified_upload
-          } else {
-            cluster_size <- input$cluster_size_stratified
-            icc <- input$intraclass_correlation_stratified
-          }
-        }
-        
-        dess <- 1 + (cluster_size - 1) * icc
-        
-        base_params <- c(base_params, "Cluster Size", "Intraclass Correlation (ICC)", "Design Effect (DEFF)")
-        base_values <- c(base_values, cluster_size, round(icc, 3), round(dess, 3))
-        base_formulas <- c(base_formulas, "Given", "Given", "1 + (m-1) × ICC")
-      }
-      
-      calc_data <- data.frame(
-        Parameter = base_params,
-        Value = base_values,
-        Formula = base_formulas
-      )
-      
       DT::datatable(
-        calc_data,
-        options = list(
-          pageLength = 10,
-          dom = 't',
-          ordering = FALSE
-        ),
+        results$steps,
+        options = list(pageLength = 30, dom = 't', ordering = FALSE, scrollX = TRUE),
         rownames = FALSE
       ) %>%
         DT::formatStyle(1, fontWeight = 'bold')
     })
-    
-    # Strata tables
-    output$strata_table <- DT::renderDataTable({
-      if (input$sampling_method == "stratified") {
-        DT::datatable(
-          strata_data(),
-          editable = list(target = "cell", disable = list(columns = c())),  # Allow editing all columns
-          options = list(
-            pageLength = 10,
-            dom = 't',
-            ordering = FALSE,
-            scrollX = TRUE,
-            autoWidth = TRUE,
-            columnDefs = list(
-              list(width = '40%', targets = 0, className = 'dt-center'),
-              list(width = '60%', targets = 1, className = 'dt-center')
-            )
-          ),
-          rownames = FALSE,
-          selection = 'none',
-          class = 'excel-table'
-        ) %>%
-          DT::formatStyle(1, fontWeight = 'bold') %>%
-          DT::formatStyle(2, textAlign = 'right') %>%
-          DT::formatCurrency(2, currency = '', digits = 0)
-      }
-    }, server = FALSE)
-    
-    output$strata_table_cluster <- DT::renderDataTable({
-      if (input$sampling_method == "stratified_cluster") {
-        DT::datatable(
-          strata_data_cluster(),
-          editable = list(target = "cell", disable = list(columns = c())),  # Allow editing all columns
-          options = list(
-            pageLength = 10,
-            dom = 't',
-            ordering = FALSE,
-            scrollX = TRUE,
-            autoWidth = TRUE,
-            columnDefs = list(
-              list(width = '40%', targets = 0, className = 'dt-center'),
-              list(width = '60%', targets = 1, className = 'dt-center')
-            )
-          ),
-          rownames = FALSE,
-          selection = 'none',
-          class = 'excel-table'
-        ) %>%
-          DT::formatStyle(1, fontWeight = 'bold') %>%
-          DT::formatStyle(2, textAlign = 'right') %>%
-          DT::formatCurrency(2, currency = '', digits = 0)
-      }
-    }, server = FALSE)
-    
-    # Handle strata table edits
-    observeEvent(input$strata_table_cell_edit, {
-      if (input$sampling_method == "stratified") {
-        info <- input$strata_table_cell_edit
-        current_data <- strata_data()
-        
-        # Validate row and column indices
-        if (info$row > 0 && info$row <= nrow(current_data) && 
-            info$col >= 0 && info$col < ncol(current_data)) {
-          
-          # Check which column was edited
-          if (info$col == 1) {  # Population column
-            # Validate the input for population
-            new_value <- as.numeric(info$value)
-            if (!is.na(new_value) && new_value > 0) {
-              current_data[info$row, info$col + 1] <- new_value  # Convert to 1-based indexing
-              strata_data(current_data)
-              
-              # Update Population Size (N) input based on total strata population
-              total_population <- sum(current_data$Population)
-              updateNumericInput(session, "population_size", value = total_population)
-              
-              showNotification("Population updated successfully!", type = "message", duration = 2)
-            } else {
-              showNotification("Please enter a valid positive number for population size.", type = "error", duration = 3)
-              strata_data(strata_data())  # Revert
-            }
-          } else if (info$col == 0) {  # Stratum name column
-            # Validate the input for stratum name
-            new_name <- trimws(as.character(info$value))
-            if (nchar(new_name) > 0 && !is.na(new_name)) {
-              current_data[info$row, info$col + 1] <- new_name  # Convert to 1-based indexing
-              strata_data(current_data)
-              showNotification("Stratum name updated successfully!", type = "message", duration = 2)
-            } else {
-              showNotification("Please enter a valid stratum name.", type = "error", duration = 3)
-              strata_data(strata_data())  # Revert
-            }
-          }
-        } else {
-          showNotification("Invalid cell selection. Please try again.", type = "error", duration = 3)
-        }
-      }
-    })
-    
-    observeEvent(input$strata_table_cluster_cell_edit, {
-      if (input$sampling_method == "stratified_cluster") {
-        info <- input$strata_table_cluster_cell_edit
-        current_data <- strata_data_cluster()
-        
-        # Validate row and column indices
-        if (info$row > 0 && info$row <= nrow(current_data) && 
-            info$col >= 0 && info$col < ncol(current_data)) {
-          
-          # Check which column was edited
-          if (info$col == 1) {  # Population column
-            # Validate the input for population
-            new_value <- as.numeric(info$value)
-            if (!is.na(new_value) && new_value > 0) {
-              current_data[info$row, info$col + 1] <- new_value  # Convert to 1-based indexing
-              strata_data_cluster(current_data)
-              
-              # Update Population Size (N) input based on total strata population
-              total_population <- sum(current_data$Population)
-              updateNumericInput(session, "population_size", value = total_population)
-              
-              showNotification("Population updated successfully!", type = "message", duration = 2)
-            } else {
-              showNotification("Please enter a valid positive number for population size.", type = "error", duration = 3)
-              strata_data_cluster(strata_data_cluster())  # Revert
-            }
-          } else if (info$col == 0) {  # Stratum name column
-            # Validate the input for stratum name
-            new_name <- trimws(as.character(info$value))
-            if (nchar(new_name) > 0 && !is.na(new_name)) {
-              current_data[info$row, info$col + 1] <- new_name  # Convert to 1-based indexing
-              strata_data_cluster(current_data)
-              showNotification("Stratum name updated successfully!", type = "message", duration = 2)
-            } else {
-              showNotification("Please enter a valid stratum name.", type = "error", duration = 3)
-              strata_data_cluster(strata_data_cluster())  # Revert
-            }
-          }
-        } else {
-          showNotification("Invalid cell selection. Please try again.", type = "error", duration = 3)
-        }
-      }
-    })
-    
+
     # Stratified breakdown table
     output$stratified_breakdown_table <- DT::renderDataTable({
-      if (input$sampling_method %in% c("stratified", "stratified_cluster")) {
-        results <- calculate_sample_size()
-        
-        # Get strata information
-        if (input$sampling_method == "stratified") {
-          # Use uploaded data if data input method is upload and columns are selected
-          if (input$data_input_method == "upload" && 
-              !is.null(uploaded_data()) && 
-              input$stratified_strata_column != "" && 
-              input$stratified_population_column != "") {
-            
-            # Extract strata data from uploaded file
-            strata_col <- input$stratified_strata_column
-            pop_col <- input$stratified_population_column
-            
-            # Create strata summary using base R approach to avoid dplyr conflicts
-            current_strata_data <- aggregate(uploaded_data()[[pop_col]], 
-                                          by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                          FUN = sum, na.rm = TRUE)
-            names(current_strata_data)[2] <- "Population"
-          } else {
-            current_strata_data <- strata_data()
-          }
-          method_type <- "stratified"
-          cluster_size <- 10  # Not used for regular stratified
-          icc <- 0.06  # Not used for regular stratified
-        } else {
-          # Use uploaded data if data input method is upload and columns are selected
-          if (input$data_input_method == "upload" && 
-              !is.null(uploaded_data()) && 
-              input$stratified_cluster_strata_column != "" && 
-              input$stratified_cluster_population_column != "") {
-            
-            # Extract strata data from uploaded file
-            strata_col <- input$stratified_cluster_strata_column
-            pop_col <- input$stratified_cluster_population_column
-            
-            # Create strata summary using base R approach to avoid dplyr conflicts
-            current_strata_data <- aggregate(uploaded_data()[[pop_col]], 
-                                          by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                          FUN = sum, na.rm = TRUE)
-            names(current_strata_data)[2] <- "Population"
-          } else {
-            current_strata_data <- strata_data_cluster()
-          }
-          method_type <- "stratified_cluster"
-          # Use uploaded data parameters if data input method is upload
-          if (input$data_input_method == "upload" && 
-              !is.null(uploaded_data()) && 
-              input$stratified_cluster_strata_column != "" && 
-              input$stratified_cluster_population_column != "") {
-            cluster_size <- input$cluster_size_stratified_upload
-            icc <- input$intraclass_correlation_stratified_upload
-          } else {
-            cluster_size <- input$cluster_size_stratified
-            icc <- input$intraclass_correlation_stratified
-          }
-        }
-        
-        
-        # Create breakdown table
-        breakdown_data <- create_stratified_breakdown(
-          current_strata_data,
-          results$expected_proportion,
-          results$confidence_level,
-          results$margin_error,
-          method_type,
-          cluster_size,
-          icc,
-          results$non_response_rate
-        )
-        
-        DT::datatable(
-          breakdown_data,
-          options = list(
-            pageLength = 10,
-            dom = 't',
-            ordering = FALSE
-          ),
-          rownames = FALSE
-        ) %>%
-          DT::formatStyle(1, fontWeight = 'bold') %>%
-          DT::formatRound(c("Population_Size", "Sample_Size"), 0) %>%
-          DT::formatRound(c("Sampling_Fraction", "Confidence_Level", "Margin_of_Error", "Expected_Proportion", "Non_Response_Rate"), 2) %>%
-          {if (input$sampling_method == "stratified_cluster") {
-            DT::formatRound(., c("Cluster_Size", "ICC", "Design_Effect"), 3)
-          } else {
-            .
-          }}
-      }
+      results <- calculate_sample_size()
+      req(!is.null(results$breakdown))
+      DT::datatable(
+        display_breakdown(results),
+        options = list(pageLength = 25, dom = 'tp', ordering = FALSE, scrollX = TRUE),
+        rownames = FALSE
+      ) %>%
+        DT::formatStyle(1, fontWeight = 'bold')
     })
-    
+
+    file_stem <- function(default) {
+      if (!is.null(input$study_name) && input$study_name != "") {
+        paste0(gsub("[^A-Za-z0-9_-]", "_", input$study_name), "_Sample_Size")
+      } else {
+        default
+      }
+    }
+
+    summary_sheet <- function(results) {
+      data.frame(
+        Item = c("Study name", "Sampling method", "Required sample size", "Explanation", "Date", "App version"),
+        Value = c(if (is.null(input$study_name) || input$study_name == "") "Not specified" else input$study_name,
+                  results$method_name, results$sample_size, results$explanation, as.character(Sys.Date()),
+                  if (exists("app_version")) app_version() else ""),
+        stringsAsFactors = FALSE
+      )
+    }
+
     # Download handlers
     output$download_excel <- downloadHandler(
-      filename = function() {
-        study_name_clean <- if (input$study_name != "") {
-          paste0(gsub("[^A-Za-z0-9_-]", "_", input$study_name), "_Sample_Size")
-        } else {
-          "sample_size_calculation"
-        }
-        paste0(study_name_clean, "_", Sys.Date(), ".xlsx")
-      },
+      filename = function() paste0(file_stem("sample_size_calculation"), "_", Sys.Date(), ".xlsx"),
       content = function(file) {
         results <- calculate_sample_size()
-        z <- qnorm(1 - (1 - results$confidence_level) / 2)
-        n0 <- (z^2 * results$expected_proportion * (1 - results$expected_proportion)) / (results$margin_error^2)
-        
-        # Base parameters
-        base_params <- c(
-          "Population Size (N)",
-          "Confidence Level",
-          "Margin of Error",
-          "Expected Proportion (p)",
-          "Non-Response Rate",
-          "Z-score (α/2)",
-          "Initial Sample Size (n₀)",
-          "Final Sample Size (n)"
-        )
-        
-        base_values <- c(
-          results$population_size,
-          results$confidence_level,
-          results$margin_error,
-          results$expected_proportion,
-          results$non_response_rate,
-          z,
-          n0,
-          results$sample_size
-        )
-        
-        # Add cluster-specific parameters if applicable
-        if (input$sampling_method %in% c("cluster", "stratified_cluster")) {
-          cluster_size <- if (input$sampling_method == "cluster") input$cluster_size else input$cluster_size_stratified
-          icc <- if (input$sampling_method == "cluster") input$intraclass_correlation else input$intraclass_correlation_stratified
-          dess <- 1 + (cluster_size - 1) * icc
-          
-          base_params <- c(base_params, "Cluster Size", "Intraclass Correlation (ICC)", "Design Effect (DEFF)")
-          base_values <- c(base_values, cluster_size, icc, dess)
-        }
-        
-        calc_data <- data.frame(
-          Parameter = base_params,
-          Value = base_values
-        )
-        
-        writexl::write_xlsx(calc_data, file)
+        sheets <- list(Summary = summary_sheet(results), Calculation = results$steps)
+        if (!is.null(results$breakdown)) sheets[["Stratified Breakdown"]] <- display_breakdown(results)
+        writexl::write_xlsx(sheets, file)
       }
     )
-    
-    # Download stratified breakdown
+
     output$download_stratified_breakdown <- downloadHandler(
-      filename = function() {
-        study_name_clean <- if (input$study_name != "") {
-          paste0(gsub("[^A-Za-z0-9_-]", "_", input$study_name), "_Sample_Size")
-        } else {
-          "stratified_breakdown"
-        }
-        paste0(study_name_clean, "_", Sys.Date(), ".xlsx")
-      },
-      content = function(file) {
-        if (input$sampling_method %in% c("stratified", "stratified_cluster")) {
-          results <- calculate_sample_size()
-          
-          # Get strata information - use uploaded data if available
-          if (input$sampling_method == "stratified") {
-            # Use uploaded data if data input method is upload and columns are selected
-            if (input$data_input_method == "upload" && 
-                !is.null(uploaded_data()) && 
-                input$stratified_strata_column != "" && 
-                input$stratified_population_column != "") {
-              
-              # Extract strata data from uploaded file
-              strata_col <- input$stratified_strata_column
-              pop_col <- input$stratified_population_column
-              
-              # Create strata summary using base R approach to avoid dplyr conflicts
-              current_strata_data <- aggregate(uploaded_data()[[pop_col]], 
-                                            by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                            FUN = sum, na.rm = TRUE)
-              names(current_strata_data)[2] <- "Population"
-            } else {
-              current_strata_data <- strata_data()
-            }
-            method_type <- "stratified"
-            cluster_size <- 10  # Not used for regular stratified
-            icc <- 0.06  # Not used for regular stratified
-          } else {
-            # Use uploaded data if data input method is upload and columns are selected
-            if (input$data_input_method == "upload" && 
-                !is.null(uploaded_data()) && 
-                input$stratified_cluster_strata_column != "" && 
-                input$stratified_cluster_population_column != "") {
-              
-              # Extract strata data from uploaded file
-              strata_col <- input$stratified_cluster_strata_column
-              pop_col <- input$stratified_cluster_population_column
-              
-              # Create strata summary using base R approach to avoid dplyr conflicts
-              current_strata_data <- aggregate(uploaded_data()[[pop_col]], 
-                                            by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                            FUN = sum, na.rm = TRUE)
-              names(current_strata_data)[2] <- "Population"
-            } else {
-              current_strata_data <- strata_data_cluster()
-            }
-            method_type <- "stratified_cluster"
-            # Use uploaded data parameters if data input method is upload
-            if (input$data_input_method == "upload" && 
-                !is.null(uploaded_data()) && 
-                input$stratified_cluster_strata_column != "" && 
-                input$stratified_cluster_population_column != "") {
-              cluster_size <- input$cluster_size_stratified_upload
-              icc <- input$intraclass_correlation_stratified_upload
-            } else {
-              cluster_size <- input$cluster_size_stratified
-              icc <- input$intraclass_correlation_stratified
-            }
-          }
-          
-          # Create breakdown table
-          breakdown_data <- create_stratified_breakdown(
-            current_strata_data,
-            results$expected_proportion,
-            results$confidence_level,
-            results$margin_error,
-            method_type,
-            cluster_size,
-            icc,
-            results$non_response_rate
-          )
-          
-          # Create a list with both summary and breakdown
-          sheets_list <- list(
-            "Summary" = data.frame(
-              Parameter = c("Total Population", "Total Sample Size", "Number of Strata", "Method"),
-              Value = c(sum(current_strata_data$Population), results$sample_size, nrow(current_strata_data), results$method_name)
-            ),
-            "Stratified_Breakdown" = breakdown_data
-          )
-          
-          writexl::write_xlsx(sheets_list, file)
-        }
-      }
-    )
-    
-    output$download_pdf <- downloadHandler(
-      filename = function() {
-        study_name_clean <- if (input$study_name != "") {
-          paste0(gsub("[^A-Za-z0-9_-]", "_", input$study_name), "_Sample_Size")
-        } else {
-          "sample_size_report"
-        }
-        paste0(study_name_clean, "_", Sys.Date(), ".pdf")
-      },
+      filename = function() paste0(file_stem("stratified_breakdown"), "_", Sys.Date(), ".xlsx"),
       content = function(file) {
         results <- calculate_sample_size()
-         
-        # Build the same explanation string shown in the UI
-        explanation_text <- paste0(
-          "For a population of ", format(results$population_size, big.mark = ","), 
-          " with ", results$confidence_level * 100, "% confidence level and ", 
-          results$margin_error * 100, "% margin of error, you need a sample size of ",
-          results$sample_size, " using ", results$method_name, 
-          " (adjusted for ", input$non_response_rate, "% non-response rate)."
-        )
-        
-        # Add design effect info for cluster methods
-        if (input$sampling_method %in% c("cluster", "stratified_cluster")) {
-          cluster_size <- if (input$sampling_method == "cluster") input$cluster_size else input$cluster_size_stratified
-          icc <- if (input$sampling_method == "cluster") input$intraclass_correlation else input$intraclass_correlation_stratified
-          dess <- 1 + (cluster_size - 1) * icc
-          
-          explanation_text <- paste0(
-            explanation_text,
-            " Design Effect (DEFF): ", round(dess, 3),
-            " Cluster Size: ", cluster_size, ", ICC: ", round(icc, 3), "."
-          )
+        writexl::write_xlsx(list(Summary = summary_sheet(results),
+                                 Stratified_Breakdown = display_breakdown(results)), file)
+      }
+    )
+
+    output$download_pdf <- downloadHandler(
+      filename = function() paste0(file_stem("sample_size_report"), "_", Sys.Date(), ".pdf"),
+      content = function(file) {
+        results <- calculate_sample_size()
+        study <- if (is.null(input$study_name) || input$study_name == "") "" else input$study_name
+
+        breakdown_text <- ""
+        if (!is.null(results$breakdown)) {
+          breakdown_text <- paste0("\n\n## Stratified Breakdown\n\n", markdown_table(display_breakdown(results)))
         }
-        
-        # Generate calculation data for the table
-        z <- qnorm(1 - (1 - results$confidence_level) / 2)
-        n0 <- (z^2 * results$expected_proportion * (1 - results$expected_proportion)) / (results$margin_error^2)
-        n_adjusted <- n0 / (1 + (n0 - 1) / results$population_size)
-        n_final <- n_adjusted / (1 - results$non_response_rate)
-        
-        # Create base calculation table
-        if (input$sampling_method %in% c("stratified", "stratified_cluster")) {
-          # For stratified methods, get strata information to calculate average stratum size
-          if (input$sampling_method == "stratified") {
-            if (input$data_input_method == "upload" && 
-                !is.null(uploaded_data()) && 
-                input$stratified_strata_column != "" && 
-                input$stratified_population_column != "") {
-              strata_col <- input$stratified_strata_column
-              pop_col <- input$stratified_population_column
-              current_strata_data <- aggregate(uploaded_data()[[pop_col]], 
-                                            by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                            FUN = sum, na.rm = TRUE)
-              names(current_strata_data)[2] <- "Population"
-            } else {
-              current_strata_data <- strata_data()
-            }
-          } else {
-            if (input$data_input_method == "upload" && 
-                !is.null(uploaded_data()) && 
-                input$stratified_cluster_strata_column != "" && 
-                input$stratified_cluster_population_column != "") {
-              strata_col <- input$stratified_cluster_strata_column
-              pop_col <- input$stratified_cluster_population_column
-              current_strata_data <- aggregate(uploaded_data()[[pop_col]], 
-                                            by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                            FUN = sum, na.rm = TRUE)
-              names(current_strata_data)[2] <- "Population"
-            } else {
-              current_strata_data <- strata_data_cluster()
-            }
-          }
-          
-          # Calculate average stratum size for per-stratum calculations
-          avg_stratum_size <- mean(current_strata_data$Population)
-          
-          # Recalculate sample size for average stratum
-          n0_avg <- (z^2 * results$expected_proportion * (1 - results$expected_proportion)) / (results$margin_error^2)
-          n_adjusted_avg <- n0_avg / (1 + (n0_avg - 1) / avg_stratum_size)
-          
-          base_params <- c(
-            "Average Stratum Population (N)",
-            "Confidence Level",
-            "Margin of Error", 
-            "Expected Proportion (p)",
-            "Non-Response Rate",
-            "Z-score (alpha/2)",
-            "Initial Sample Size (n0)"
-          )
-          
-          base_values <- c(
-            format(round(avg_stratum_size, 0), big.mark = ","),
-            paste0(results$confidence_level * 100, "%"),
-            paste0(results$margin_error * 100, "%"),
-            as.character(results$expected_proportion),
-            paste0(results$non_response_rate * 100, "%"),
-            as.character(round(z, 3)),
-            as.character(round(n0_avg, 0))
-          )
-        } else {
-          base_params <- c(
-            "Population Size (N)",
-            "Confidence Level",
-            "Margin of Error", 
-            "Expected Proportion (p)",
-            "Non-Response Rate",
-            "Z-score (alpha/2)",
-            "Initial Sample Size (n0)"
-          )
-          
-          base_values <- c(
-            format(results$population_size, big.mark = ","),
-            paste0(results$confidence_level * 100, "%"),
-            paste0(results$margin_error * 100, "%"),
-            as.character(results$expected_proportion),
-            paste0(results$non_response_rate * 100, "%"),
-            as.character(round(z, 3)),
-            as.character(round(n0, 0))
-          )
-        }
-        
-        base_formulas <- c(
-          "Given",
-          "Given", 
-          "Given",
-          "Given",
-          "Given",
-          "qnorm(1 - alpha/2)",
-          "z^2*p*(1-p)/e^2"
-        )
-        
-        # Add cluster-specific parameters if applicable (insert after initial sample size)
-        if (input$sampling_method %in% c("cluster", "stratified_cluster")) {
-          cluster_size <- if (input$sampling_method == "cluster") input$cluster_size else input$cluster_size_stratified
-          icc <- if (input$sampling_method == "cluster") input$intraclass_correlation else input$intraclass_correlation_stratified
-          dess <- 1 + (cluster_size - 1) * icc
-          
-          # Insert cluster parameters after initial sample size
-          cluster_params <- c("Cluster Size", "Intraclass Correlation (ICC)", "Design Effect (DEFF)")
-          cluster_values <- c(as.character(cluster_size), as.character(round(icc, 3)), as.character(round(dess, 3)))
-          cluster_formulas <- c("Given", "Given", "1 + (m-1) × ICC")
-          
-          # Combine base parameters with cluster parameters (base_params only has 7 elements, so no need for [8:length])
-          all_params <- c(base_params, cluster_params)
-          all_values <- c(base_values, cluster_values)
-          all_formulas <- c(base_formulas, cluster_formulas)
-        } else {
-          all_params <- base_params
-          all_values <- base_values
-          all_formulas <- base_formulas
-        }
-        
-        # Add remaining parameters
-        if (input$sampling_method %in% c("stratified", "stratified_cluster")) {
-          # Use the average stratum calculations for remaining parameters
-          remaining_params <- c(
-            "Finite Population Correction",
-            "Sample Size per Stratum (before non-response)",
-            "Number of Strata",
-            "Total Sample Size (n)"
-          )
-          
-          remaining_values <- c(
-            as.character(round(1 + (n0_avg - 1) / avg_stratum_size, 3)),
-            as.character(round(n_adjusted_avg, 0)),
-            as.character(nrow(current_strata_data)),
-            as.character(results$sample_size)
-          )
-          
-          remaining_formulas <- c(
-            "1 + (n0-1)/N",
-            "n0 / FPC",
-            "Count of strata",
-            "Sample per Stratum × Number of Strata"
-          )
-          
-          # For cluster sampling, adjust the final calculation
-          if (input$sampling_method == "stratified_cluster") {
-            remaining_formulas[4] <- "Sample per Stratum × Number of Strata × DEFF"
-          }
-        } else {
-          remaining_params <- c(
-            "Finite Population Correction",
-            "Sample Size (before non-response)",
-            "Final Sample Size (n)"
-          )
-          
-          remaining_values <- c(
-            as.character(round(1 + (n0 - 1) / results$population_size, 3)),
-            as.character(round(n_adjusted, 0)),
-            as.character(results$sample_size)
-          )
-          
-          remaining_formulas <- c(
-            "1 + (n0-1)/N",
-            "n0 / FPC",
-            "n_adjusted / (1 - non_response_rate)"
-          )
-          
-          # For cluster sampling, adjust the final calculation
-          if (input$sampling_method == "cluster") {
-            remaining_formulas[3] <- "n_adjusted / (1 - non_response_rate) × DEFF"
-          }
-        }
-        
-        # Combine all parameters
-        final_params <- c(all_params, remaining_params)
-        final_values <- c(all_values, remaining_values)
-        final_formulas <- c(all_formulas, remaining_formulas)
-        
-        # Create the final table
-        calc_table <- data.frame(
-          Parameter = final_params,
-          Value = final_values,
-          Formula = final_formulas
-        )
-        
-        # Convert to markdown table
-        calc_text <- paste0(
-          "| Parameter | Value | Formula |\n",
-          "|-----------|-------|----------|\n",
-          paste(apply(calc_table, 1, function(row) {
-            paste0("| ", row[1], " | ", row[2], " | ", row[3], " |")
-          }), collapse = "\n")
-        )
-        
-        # Generate stratified breakdown if applicable
-        stratified_breakdown_text <- ""
-        if (input$sampling_method %in% c("stratified", "stratified_cluster")) {
-          # Get strata information
-          if (input$sampling_method == "stratified") {
-            # Use uploaded data if data input method is upload and columns are selected
-            if (input$data_input_method == "upload" && 
-                !is.null(uploaded_data()) && 
-                input$stratified_strata_column != "" && 
-                input$stratified_population_column != "") {
-              
-              # Extract strata data from uploaded file
-              strata_col <- input$stratified_strata_column
-              pop_col <- input$stratified_population_column
-              
-              # Create strata summary using base R approach to avoid dplyr conflicts
-              current_strata_data <- aggregate(uploaded_data()[[pop_col]], 
-                                            by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                            FUN = sum, na.rm = TRUE)
-              names(current_strata_data)[2] <- "Population"
-            } else {
-              current_strata_data <- strata_data()
-            }
-            method_type <- "stratified"
-            cluster_size <- 10  # Not used for regular stratified
-            icc <- 0.06  # Not used for regular stratified
-          } else {
-            # Use uploaded data if data input method is upload and columns are selected
-            if (input$data_input_method == "upload" && 
-                !is.null(uploaded_data()) && 
-                input$stratified_cluster_strata_column != "" && 
-                input$stratified_cluster_population_column != "") {
-              
-              # Extract strata data from uploaded file
-              strata_col <- input$stratified_cluster_strata_column
-              pop_col <- input$stratified_cluster_population_column
-              
-              # Create strata summary using base R approach to avoid dplyr conflicts
-              current_strata_data <- aggregate(uploaded_data()[[pop_col]], 
-                                            by = list(Stratum = uploaded_data()[[strata_col]]), 
-                                            FUN = sum, na.rm = TRUE)
-              names(current_strata_data)[2] <- "Population"
-            } else {
-              current_strata_data <- strata_data_cluster()
-            }
-            method_type <- "stratified_cluster"
-            # Use uploaded data parameters if data input method is upload
-            if (input$data_input_method == "upload" && 
-                !is.null(uploaded_data()) && 
-                input$stratified_cluster_strata_column != "" && 
-                input$stratified_cluster_population_column != "") {
-              cluster_size <- input$cluster_size_stratified_upload
-              icc <- input$intraclass_correlation_stratified_upload
-            } else {
-              cluster_size <- input$cluster_size_stratified
-              icc <- input$intraclass_correlation_stratified
-            }
-          }
-          
-          # Create breakdown table
-          breakdown_data <- create_stratified_breakdown(
-            current_strata_data,
-            results$expected_proportion,
-            results$confidence_level,
-            results$margin_error,
-            method_type,
-            cluster_size,
-            icc,
-            results$non_response_rate
-          )
-          
-          # Convert breakdown to markdown table
-          breakdown_table <- data.frame(
-            Stratum = breakdown_data$Stratum,
-            Population_Size = format(breakdown_data$Population_Size, big.mark = ","),
-            Sample_Size = breakdown_data$Sample_Size,
-            Sampling_Fraction = paste0(breakdown_data$Sampling_Fraction, "%"),
-            Confidence_Level = paste0(breakdown_data$Confidence_Level, "%"),
-            Margin_of_Error = paste0(breakdown_data$Margin_of_Error, "%"),
-            stringsAsFactors = FALSE
-          )
-          
-          # Add cluster-specific columns if applicable
-          if (method_type == "stratified_cluster") {
-            breakdown_table$Cluster_Size <- breakdown_data$Cluster_Size
-            breakdown_table$ICC <- round(breakdown_data$ICC, 3)
-            breakdown_table$Design_Effect <- round(breakdown_data$Design_Effect, 3)
-          }
-          
-          # Create markdown table for breakdown
-          breakdown_headers <- c("Stratum", "Population Size", "Sample Size", "Sampling Fraction", "Confidence Level", "Margin of Error")
-          if (method_type == "stratified_cluster") {
-            breakdown_headers <- c(breakdown_headers, "Cluster Size", "ICC", "Design Effect")
-          }
-          
-          breakdown_text <- paste0(
-            "| ", paste(breakdown_headers, collapse = " | "), " |\n",
-            "|", paste(rep("---", length(breakdown_headers)), collapse = "|"), "|\n",
-            paste(apply(breakdown_table, 1, function(row) {
-              paste0("| ", paste(row, collapse = " | "), " |")
-            }), collapse = "\n")
-          )
-          
-          stratified_breakdown_text <- paste0(
-            "\n\n## Stratified Sampling Breakdown\n\n",
-            breakdown_text, "\n\n",
-            "### Summary\n\n",
-            "- **Total Population:** ", format(sum(current_strata_data$Population), big.mark = ","), "\n",
-            "- **Total Sample Size:** ", results$sample_size, "\n",
-            "- **Number of Strata:** ", nrow(current_strata_data), "\n",
-            "- **Sampling Method:** ", results$method_name
-          )
-        }
-        
-        # Create temporary Rmd file including the explanation and calculations
+
         rmd_content <- paste0(
           "---\n",
-          "title: '", if (input$study_name != "") paste0(input$study_name, " Sample Size Calculation Report") else "Sample Size Calculation Report", "'\n",
-          "subtitle: '", "ATR Consulting", "'\n",
+          "title: '", gsub("'", "''", ascii_text(if (study != "") paste(study, "Sample Size Calculation Report") else "Sample Size Calculation Report")), "'\n",
+          "subtitle: 'ATR Consulting'\n",
           "date: '", Sys.Date(), "'\n",
           "output: pdf_document\n",
           "---\n\n",
           "## Study Information\n\n",
-          "**Study Name:** ", if (input$study_name != "") input$study_name else "Not specified", "\n\n",
-          "## Study Parameters\n\n",
-          "- **Population Size:** ", format(results$population_size, big.mark = ","), "\n",
-          "- **Confidence Level:** ", results$confidence_level * 100, "%\n",
-          "- **Margin of Error:** ", results$margin_error * 100, "%\n",
-          "- **Expected Proportion:** ", results$expected_proportion, "\n",
-          "- **Non-Response Rate:** ", results$non_response_rate * 100, "%\n",
-          "- **Sampling Method:** ", results$method_name,
-          if (input$sampling_method %in% c("stratified", "stratified_cluster")) {
-            paste0("\n- **Number of Strata:** ", 
-                   if (input$sampling_method == "stratified") {
-                     if (input$data_input_method == "upload" && 
-                         !is.null(uploaded_data()) && 
-                         input$stratified_strata_column != "" && 
-                         input$stratified_population_column != "") {
-                       length(unique(uploaded_data()[[input$stratified_strata_column]]))
-                     } else {
-                       nrow(strata_data())
-                     }
-                   } else {
-                     if (input$data_input_method == "upload" && 
-                         !is.null(uploaded_data()) && 
-                         input$stratified_cluster_strata_column != "" && 
-                         input$stratified_cluster_population_column != "") {
-                       length(unique(uploaded_data()[[input$stratified_cluster_strata_column]]))
-                     } else {
-                       nrow(strata_data_cluster())
-                     }
-                   })
-          } else {
-            ""
-          }, "\n\n",
+          "**Study Name:** ", if (study != "") ascii_text(study) else "Not specified", "\n\n",
+          "**Sampling Method:** ", results$method_name, "\n\n",
           "## Required Sample Size\n\n",
           "**", results$sample_size, "**\n\n",
           "## Explanation\n\n",
-          explanation_text, "\n\n",
+          ascii_text(results$explanation), "\n\n",
           "## Detailed Calculations\n\n",
-          if (input$sampling_method %in% c("stratified", "stratified_cluster")) {
-            paste0(
-              "### Per-Stratum Calculations\n\n",
-              "The following calculations show how the sample size is determined for each stratum:\n\n",
-              calc_text, "\n\n",
-              "### Total Sample Size Calculation\n\n",
-              "The total sample size is calculated by multiplying the per-stratum sample size by the number of strata:\n\n",
-              "**Total Sample Size = Sample per Stratum × Number of Strata", 
-              if (input$sampling_method == "stratified_cluster") " × Design Effect", 
-              "**\n\n"
-            )
-          } else {
-            paste0(calc_text, "\n\n")
-          },
-          stratified_breakdown_text, "\n\n",
+          markdown_table(results$steps),
+          breakdown_text, "\n\n",
           "### Notes\n\n",
-          "- **Z-score (alpha/2):** Critical value for the given confidence level\n",
-          "- **Initial Sample Size (n0):** Sample size before finite population correction\n",
-          "- **Finite Population Correction:** Adjustment factor for finite populations"
+          "- **Z-score (alpha/2):** critical value for the confidence level\n",
+          "- **Initial Sample Size (n0):** sample size for an infinite population, before any adjustment\n",
+          "- **Finite Population Correction:** reduces the sample when it is a large share of the population\n",
+          if (!is.null(results$cluster_size)) "- **Design Effect (DEFF):** inflation for interviewing m units per cluster\n" else "",
+          "- **Expected Margin of Error:** precision achieved if the non-response rate is as assumed\n",
+          "\n*Generated by the ATR Sampling Tool", if (exists("app_version")) paste0(" (version ", app_version(), ")") else "", ".*\n"
         )
-        
-        # Add cluster sampling note if applicable
-        if (input$sampling_method %in% c("cluster", "stratified_cluster")) {
-          rmd_content <- paste0(rmd_content, "\n- **Design Effect (DEFF):** Adjustment factor for cluster sampling")
-        }
-        
+
         temp_rmd <- tempfile(fileext = ".Rmd")
-        writeLines(rmd_content, temp_rmd)
-        
+        writeLines(rmd_content, temp_rmd, useBytes = TRUE)
+
         # Render to PDF
         rmarkdown::render(temp_rmd, output_file = file, quiet = TRUE)
       }
     )
+
+    # Settings sent from the Decision Tree
+    handover <- reactiveVal(NULL)
+    output$handover_note <- renderUI(handover_note_ui(handover(), session$ns("dismiss_handover")))
+    observeEvent(input$dismiss_handover, handover(NULL))
+
+    list(apply_handover = function(settings, design_name) {
+      method_labels <- c(simple_random = "Simple Random Sampling", stratified = "Stratified Random Sampling",
+                         cluster = "Cluster Sampling", stratified_cluster = "Stratified Cluster Sampling",
+                         systematic = "Systematic Sampling")
+      clustered <- settings$method %in% c("cluster", "stratified_cluster")
+      stratified <- settings$method %in% c("stratified", "stratified_cluster")
+      updateSelectInput(session, "sampling_method", selected = settings$method)
+      updateNumericInput(session, "non_response_rate", value = settings$non_response)
+      if (clustered) {
+        for (suffix in c("", "_stratified")) {
+          updateNumericInput(session, paste0("cluster_size", suffix), value = settings$cluster_size)
+          updateNumericInput(session, paste0("intraclass_correlation", suffix), value = settings$icc)
+        }
+      }
+      if (stratified) updateRadioButtons(session, "precision_target", selected = settings$precision_target)
+      # Earlier results no longer match the settings; they return on the next calculation
+      # (full id: this runs from the Decision Tree, so shinyjs would use that module's namespace)
+      shinyjs::hide(session$ns("results_container"), asis = TRUE)
+      handover(list(design = design_name, action = "then click Calculate Sample Size", details = c(
+        paste("method:", method_labels[[settings$method]]),
+        if (clustered) sprintf("interviews per cluster %d and ICC %.2f (design effect %.2f, a common starting point)",
+                               settings$cluster_size, settings$icc, 1 + (settings$cluster_size - 1) * settings$icc),
+        paste0("non-response ", settings$non_response, "%"),
+        if (stratified) paste("precision target:", if (settings$precision_target == "total") "whole population" else "each stratum")
+      )))
+    })
   })
 }
