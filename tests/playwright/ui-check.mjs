@@ -195,6 +195,9 @@ async function runAt(viewport, label) {
   if (!(await ev("indicators_table").innerText()).includes("% of baseline")) report(label, "evaluation: Change column does not name the scale");
   await page.locator('input[name="evaluation_calculator-effect_scale"][value="absolute"]').check();
   await settle(page);
+  // Back on points, the values are exactly as entered (no rounding drift such as -0.0800001)
+  const cells = await ev("indicators_table").locator("tbody td").allInnerTexts();
+  if (!cells.includes("-0.08") || !cells.includes("3")) report(label, `evaluation: Change values after switching scales are ${JSON.stringify(cells)}`);
   await ev("use_subgroups").check();
   await settle(page);
   const details = await ev("detail_tables").innerText();

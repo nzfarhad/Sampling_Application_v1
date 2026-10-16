@@ -120,17 +120,23 @@ test_that("evaluation server: changing the scale converts the indicator table, s
                 response_rate = 90, matching = TRUE, matching_factor = 1.3)
     before <- result()$indicators$Sample_per_Group
     expect_equal(before, c(546, 1014))
+    # The stored change stays in points or units, exactly; only the shown table is converted
+    for (scale in c("relative", "d", "absolute", "relative", "absolute", "d", "absolute")) {
+      session$setInputs(effect_scale = scale)
+      expect_identical(indicators()$Change, c(3, -0.08))
+      expect_equal(result()$indicators$Sample_per_Group, before)
+    }
     session$setInputs(effect_scale = "relative")
-    expect_equal(indicators()$Change, c(7.5, -0.08 / 0.3 * 100), tolerance = 1e-5)
-    expect_equal(result()$indicators$Sample_per_Group, before)
+    expect_equal(indicators_on_scale()$Change, c(7.5, -0.08 / 0.3 * 100))
     expect_length(result()$warnings, 0)
     expect_match(paste(as.character(output$indicators_table), collapse = ""), "Change \\(% of baseline\\)")
     session$setInputs(effect_scale = "d")
-    expect_equal(indicators()$Change, c(0.25, -0.08), tolerance = 1e-5)   # proportions are held in points on the d scale
-    expect_equal(result()$indicators$Sample_per_Group, before)
-    session$setInputs(effect_scale = "absolute")
-    expect_equal(indicators()$Change, c(3, -0.08), tolerance = 1e-5)
-    expect_equal(result()$indicators$Sample_per_Group, before)
+    expect_equal(indicators_on_scale()$Change, c(0.25, -0.08))   # proportions are shown in points on the d scale
+    # An edit typed on the shown scale is stored in points: 10% of a 0.30 baseline = 0.03
+    session$setInputs(effect_scale = "relative", indicators_table_cell_edit = list(row = 2, col = 4, value = "-10"))
+    expect_equal(indicators()$Change[2], -0.03)
+    session$setInputs(effect_scale = "absolute", indicators_table_cell_edit = list(row = 2, col = 4, value = "-0.08"))
+    expect_identical(indicators()$Change, c(3, -0.08))
 
     # A change typed on the wrong scale is flagged
     session$setInputs(effect_scale = "relative", indicators_table_cell_edit = list(row = 2, col = 4, value = "-0.08"))

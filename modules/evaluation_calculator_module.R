@@ -587,7 +587,19 @@ evaluation_calculator_server <- function(id, study_name = NULL, on_article = NUL
       }
       store(tab)
     }
-    observeEvent(input$indicators_table_cell_edit, edit_table(indicators, input$indicators_table_cell_edit, c("Indicator", "Type")))
+    observeEvent(input$indicators_table_cell_edit, {
+      edit <- input$indicators_table_cell_edit
+      if (names(indicators())[edit$col + 1] == "Change") {
+        # Typed on the shown scale; stored in points or units
+        tab <- indicators()
+        row <- tab[edit$row, , drop = FALSE]
+        row$Change <- suppressWarnings(as.numeric(edit$value))
+        tab$Change[edit$row] <- evaluation_convert_change(row, table_scale(), "absolute")$Change
+        indicators(tab)
+      } else {
+        edit_table(indicators, edit, c("Indicator", "Type"))
+      }
+    })
     observeEvent(input$subgroups_table_cell_edit, edit_table(subgroups, input$subgroups_table_cell_edit, "Subgroup"))
     observeEvent(input$add_indicator, {
       tab <- indicators()
@@ -604,18 +616,12 @@ evaluation_calculator_server <- function(id, study_name = NULL, on_article = NUL
     })
     observeEvent(input$remove_subgroup, if (nrow(subgroups()) > 1) subgroups(subgroups()[-nrow(subgroups()), ]))
 
-    # The Change column is read on the chosen scale: when the scale changes, convert
-    # the values so each indicator keeps the same change (points stay points)
-    table_scale <- "absolute"
-    observeEvent(input$effect_scale, {
-      new_scale <- if (identical(input$effect_scale, "value2")) "absolute" else input$effect_scale
-      if (new_scale != table_scale) {
-        indicators(evaluation_convert_change(indicators(), table_scale, new_scale))
-        if (several()) showNotification("The Change column was converted to the new scale.", type = "message")
-        table_scale <<- new_scale
-      }
-    }, ignoreInit = TRUE)
-    change_label <- reactive(switch(if (is.null(input$effect_scale)) "absolute" else input$effect_scale,
+    # indicators() keeps each Change in points or units, whatever the scale, so switching
+    # scales never rewrites (or rounds) it. The table shows and reads the Change on the
+    # chosen scale.
+    table_scale <- reactive(if (is.null(input$effect_scale) || input$effect_scale == "value2") "absolute" else input$effect_scale)
+    indicators_on_scale <- reactive(evaluation_convert_change(indicators(), "absolute", table_scale()))
+    change_label <- reactive(switch(table_scale(),
       relative = "Change (% of baseline)", d = "Change (d for means, points for proportions)", "Change (points or units)"))
 
     editable_table <- function(tab, labels) {
@@ -626,7 +632,9 @@ evaluation_calculator_server <- function(id, study_name = NULL, on_article = NUL
     output$indicators_table <- DT::renderDataTable({
       labels <- EVAL_INDICATOR_COLUMNS
       labels[["Change"]] <- change_label()
-      editable_table(indicators(), labels)
+      shown <- indicators_on_scale()
+      shown$Change <- signif(shown$Change, 6)   # display only; the stored value is exact
+      editable_table(shown, labels)
     })
     output$subgroups_table <- DT::renderDataTable(editable_table(subgroups(), EVAL_SUBGROUP_COLUMNS))
 
@@ -675,7 +683,7 @@ evaluation_calculator_server <- function(id, study_name = NULL, on_article = NUL
         cv_weights = input$cv_weights,
         population = input$population,
         matching_factor = if (isTRUE(input$matching)) input$matching_factor else 1,
-        indicators = if (several()) indicators() else NULL,
+        indicators = if (several()) indicators_on_scale() else NULL,
         bonferroni = several() && isTRUE(input$bonferroni),
         subgroups = sg,
         subgroup_goal = if (is.null(input$subgroup_goal)) "overall" else input$subgroup_goal,

@@ -1061,7 +1061,7 @@ evaluation_convert_change <- function(tab, from, to) {
   to_row <- ifelse(!is_mean & to == "d", "absolute", to)
   units <- ifelse(from_row == "relative", change / 100 * base, ifelse(from_row == "d", change * sd, change))
   new <- ifelse(to_row == "relative", ifelse(base > 0, units / base * 100, NA), ifelse(to_row == "d", units / sd, units))
-  tab$Change <- ifelse(is.na(change) | from_row == to_row, change, signif(new, 6))
+  tab$Change <- ifelse(is.na(change) | from_row == to_row, change, new)
   tab
 }
 
