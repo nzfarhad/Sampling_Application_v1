@@ -20,6 +20,7 @@ cat("All required packages are available.\n")
 suppressPackageStartupMessages(invisible(lapply(required_packages, library, character.only = TRUE)))
 source("sampling_generation_functions.R")
 source("sample_size_functions.R")
+source("decision_tree_functions.R")
 module_files <- c("modules/decision_tree_module.R", "modules/sample_calculator_module.R",
                   "modules/evaluation_calculator_module.R", "modules/sampling_generator_module.R",
                   "modules/wiki_module.R", "modules/user_guide_module.R")

@@ -7,7 +7,7 @@ An R Shiny application for choosing a sampling method, calculating sample sizes 
 | Tab | What it does |
 |-----|--------------|
 | **How to Use** | User guide for every tab. |
-| **Decision Tree** | Suggests sampling methods from six questions about the study, with caveats (frame coverage, phone coverage in Afghanistan, insecure areas). PDF report. |
+| **Decision Tree** | Recommends one sampling design from questions about the study purpose, list, reporting groups, mode and constraints: the selection stages, reasons, alternatives and field warnings. Sends the settings to the calculators and the Sample Generator. PDF report. |
 | **Sample Calculator** | Monitoring surveys: sample size for a target margin of error, for a proportion or a mean. Simple random, systematic, cluster, stratified and stratified cluster designs; stratified precision per stratum or for the total (proportional, Neyman or equal allocation). Step-by-step table, chart, Excel and PDF downloads. |
 | **Evaluation Calculator** | Comparing proportions: two independent groups, panel, and difference-in-differences (cross-section or panel). Sample size or minimum detectable difference, with clustering, non-response, attrition and a power curve. Excel download. |
 | **Sample Generator** | Draws the sample from an uploaded frame (CSV/Excel): simple random, systematic, cluster (PPS or equal probability), stratified and stratified cluster. Frame checks before the draw, reserve units, selection probabilities and base weights, and an Excel workbook with Methodology, Allocation, Cluster Summary, Frame Checks, Column Guide and Replacement Log sheets. |
@@ -45,6 +45,7 @@ The app is hosted on shinyapps.io, a public cloud service. Upload anonymised fra
 | `app.R` | Loads packages, sources the functions and modules, defines the navigation. |
 | `sampling_generation_functions.R` | Sample selection, allocation, frame checks, weights. |
 | `sample_size_functions.R` | Sample size, margin of error, power and MDE formulas. |
+| `decision_tree_functions.R` | Decision tree questions, designs and rules. |
 | `modules/` | One file per tab. |
 | `wiki_content/` | Markdown articles for the Sampling Guideline. |
 | `tests/testthat/` | Automated tests. |

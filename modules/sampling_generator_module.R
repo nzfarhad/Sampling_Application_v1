@@ -143,10 +143,11 @@ sampling_generator_ui <- function(id) {
         div(
           class = "col-12",
           h2("Sample Generator", class = "text-center mb-3"),
-          p("Upload your dataset and generate samples using various sampling methods.", 
+          p("Upload your dataset and generate samples using various sampling methods.",
             class = "text-center text-muted")
         )
       ),
+      uiOutput(ns("handover_note")),
       
       # File Upload Section
       div(
@@ -1337,5 +1338,26 @@ sampling_generator_server <- function(id, study_name = NULL) {
         write.csv(cluster_summary(), file, row.names = FALSE)
       }
     )
+
+    # Settings sent from the Decision Tree
+    handover <- reactiveVal(NULL)
+    output$handover_note <- renderUI(handover_note_ui(handover(), session$ns("dismiss_handover")))
+    observeEvent(input$dismiss_handover, handover(NULL))
+
+    list(apply_handover = function(settings, design_name) {
+      clustered <- settings$method %in% c("cluster", "stratified_cluster")
+      updateSelectInput(session, "sampling_method", selected = settings$method)
+      if (clustered) {
+        updateRadioButtons(session, "cluster_sampling_method",
+                           selected = if (settings$cluster_list) "cluster_list" else "population_units")
+        updateCheckboxInput(session, if (settings$cluster_list) "use_pps_cluster_list" else "use_pps", value = settings$pps)
+      }
+      handover(list(design = design_name, action = "then upload the frame and generate the sample", details = c(
+        paste("method:", SAMPLING_METHOD_LABELS[[settings$method]]),
+        if (clustered) paste0(if (settings$cluster_list) "sample from a list of villages" else "sample villages from the unit list",
+                              if (settings$pps) ", with PPS" else ", with equal probability"),
+        if (length(settings$strata)) paste("after uploading, choose the strata column for:", paste(settings$strata, collapse = " and "))
+      )))
+    })
   })
 }

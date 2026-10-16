@@ -544,5 +544,11 @@ wiki_server <- function(id, articles = WIKI_ARTICLES, sections = WIKI_SECTIONS,
         show_article(names(content)[1], scroll = FALSE)
       }
     }, ignoreInit = TRUE)
+
+    # Lets other tabs open an article (e.g. the Decision Tree's field protocol links)
+    list(show_article = function(article_id) {
+      updateTextInput(session, "search_input", value = "")
+      show_article(article_id, scroll = FALSE)
+    })
   })
 }

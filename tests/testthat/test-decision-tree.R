@@ -1,83 +1,227 @@
-# Tests for the decision tree recommendations (modules/decision_tree_module.R)
+# Tests for the decision tree (decision_tree_functions.R and modules/decision_tree_module.R)
 
 root <- normalizePath(file.path(testthat::test_path(), "..", ".."))
 suppressMessages({
   library(shiny)
-  source(file.path(root, "sample_size_functions.R"))   # ascii_text()
+  source(file.path(root, "sample_size_functions.R"))   # ascii_text(), EVALUATION_DESIGNS
+  source(file.path(root, "decision_tree_functions.R"))
+  source(file.path(root, "modules", "wiki_module.R"))  # WIKI_ARTICLES
   source(file.path(root, "modules", "decision_tree_module.R"))
 })
 
+# A typical in-person monitoring survey; tests change only what they need
 ask <- function(...) {
-  recommend_sampling(modifyList(list(survey_mode = "in_person", generalization = "yes", subgroup_comparison = "no",
-                                     population_data = "complete", num_communities = "less_70",
-                                     constraints = "no_constraints"), list(...)))
+  recommend_design(modifyList(list(purpose = "level", unit = "people", frame = "unit_list", reporting = "overall",
+                                   spread = "many", mode = "in_person", constraints = character(0)), list(...)))
 }
 
-all_answers <- expand.grid(lapply(DECISION_CHOICES, unname), stringsAsFactors = FALSE)
+# Every combination of the single-choice answers (the comparison questions only
+# for evaluations), with a few sets of the multi-choice ones
+ch <- DECISION_CHOICES
+base <- expand.grid(purpose = ch$purpose, unit = ch$unit, frame = ch$frame, spread = ch$spread, mode = ch$mode,
+                    stringsAsFactors = FALSE)
+comparison <- expand.grid(comparison = ch$comparison, panel = ch$panel, random = ch$random, stringsAsFactors = FALSE)
+all_single <- rbind(
+  cbind(base[base$purpose != "change", ], comparison[1, ], row.names = NULL),
+  merge(base[base$purpose == "change", ], comparison)
+)
+reporting_sets <- list("overall", "area", c("area", "gender"), "gender", c("component", "other"))
+constraint_sets <- list(character(0), "insecure", c("budget", "women", "list_outdated"))
 
-test_that("decision tree: every answer combination gives at least one known method", {
-  for (i in seq_len(nrow(all_answers))) {
-    rec <- recommend_sampling(as.list(all_answers[i, ]))
-    expect_gt(length(rec$methods), 0)
-    expect_true(all(rec$methods %in% names(SAMPLING_METHODS)))
-  }
+all_answers <- list()
+for (i in seq_len(nrow(all_single))) for (r in reporting_sets) for (cs in constraint_sets) {
+  a <- as.list(all_single[i, ])
+  a$reporting <- r
+  a$constraints <- cs
+  all_answers[[length(all_answers) + 1]] <- a
+}
+all_results <- lapply(all_answers, recommend_design)
+
+# TRUE when check(answers, result) holds for every combination; lists the first failures otherwise
+holds_for_all <- function(check) {
+  ok <- mapply(check, all_answers, all_results)
+  if (!all(ok)) message(paste(utils::head(vapply(all_answers[!ok], function(a) paste(unlist(a), collapse = "/"), ""), 5), collapse = "\n"))
+  all(ok)
+}
+
+test_that("decision tree: every combination gives one known design with stages and reasons", {
+  expect_gt(length(all_results), 10000)
+  expect_true(holds_for_all(function(a, rec) {
+    length(rec$design) == 1 && rec$design %in% names(DESIGNS) && length(rec$stages) > 0 &&
+      length(rec$reasons) > 0 && all(rec$protocols %in% names(WIKI_ARTICLES))
+  }))
 })
 
-test_that("decision tree: no generalisation never gives a probability method, phone included", {
-  probability <- names(SAMPLING_METHODS)[vapply(SAMPLING_METHODS, function(m) m$category == "Probability", logical(1))]
-  no_gen <- all_answers[all_answers$generalization == "no", ]
-  for (i in seq_len(nrow(no_gen))) {
-    expect_false(any(recommend_sampling(as.list(no_gen[i, ]))$methods %in% probability))
-  }
-  expect_false(any(ask(survey_mode = "phone", generalization = "no")$methods %in% c("simple_random", "rdd")))
+test_that("decision tree: no result until the purpose is answered", {
+  expect_null(recommend_design(list()))
+  expect_null(recommend_design(list(purpose = "", frame = "none")))
 })
 
-test_that("decision tree: snowball only for hidden populations, convenience only on a tight budget", {
-  for (i in seq_len(nrow(all_answers))) {
-    a <- as.list(all_answers[i, ])
-    rec <- recommend_sampling(a)
-    if ("snowball" %in% rec$methods) expect_equal(a$population_data, "hidden")
-    if ("convenience" %in% rec$methods) expect_equal(a$constraints, "limited_budget")
-  }
+test_that("decision tree: questions that do not apply are ignored", {
+  expect_true(holds_for_all(function(a, rec) {
+    identical(recommend_design(a[intersect(names(a), rec$applicable)])$design, rec$design)
+  }))
+  expect_setequal(decision_applicable(list(purpose = "pilot")), c("purpose", "mode"))
+  expect_true("random" %in% decision_applicable(list(purpose = "change", comparison = "groups_both")))
+  expect_false("panel" %in% decision_applicable(list(purpose = "change", comparison = "groups_endline")))
 })
 
-test_that("decision tree: key branches and caveats", {
-  expect_equal(ask()$methods, c("simple_random", "systematic"))
-  expect_equal(ask(subgroup_comparison = "yes")$methods, "stratified")
-  expect_equal(ask(constraints = "remote_insecure")$methods, "cluster")
-  expect_equal(ask(num_communities = "more_70", subgroup_comparison = "yes")$methods, "stratified_cluster")
-  expect_equal(ask(num_communities = "all")$methods, "site_census")
-  expect_true(any(grepl("Coverage warning", ask(population_data = "partial")$notes)))
-  rdd <- ask(survey_mode = "phone", population_data = "none")
-  expect_equal(rdd$methods, "rdd")
-  expect_true(any(grepl("Afghanistan", rdd$notes)))
-  expect_equal(ask(survey_mode = "phone", subgroup_comparison = "yes")$methods, "stratified")
+test_that("decision tree: no random selection gives no probability design and a warning", {
+  probability <- names(DESIGNS)[vapply(DESIGNS, function(d) d$category == "Probability", logical(1))]
+  expect_true(holds_for_all(function(a, rec) {
+    no_moe <- any(grepl("no margin of error", rec$warnings, fixed = TRUE))
+    if (a$purpose %in% c("qualitative", "pilot") || a$frame == "unlistable") !rec$design %in% probability && no_moe
+    else if (rec$design %in% probability) !no_moe
+    else TRUE
+  }))
 })
 
-test_that("decision tree: readable labels and a PDF with quotes in the study name", {
-  expect_equal(decision_label("num_communities", "less_70"), "Fewer than about 70")
+test_that("decision tree: named scenarios", {
+  # Wheat PDM: beneficiary list, many villages, reported by province, insecure areas
+  pdm <- ask(reporting = "area", constraints = "insecure")
+  expect_equal(pdm$design, "stratified_cluster")
+  expect_true(any(grepl("PPS", pdm$stages)))
+  expect_true(any(grepl("Insecure areas", pdm$warnings)))
+  expect_equal(pdm$handover$calculator$method, "stratified_cluster")
+  expect_equal(pdm$handover$generator$method, "stratified_cluster")
+  expect_true(pdm$handover$generator$pps)
+
+  # Site verification: few sites -> visit all, many -> random sample of sites
+  expect_equal(ask(purpose = "verify", unit = "sites", spread = "few")$design, "site_all")
+  expect_null(ask(purpose = "verify", unit = "sites", spread = "few")$handover$calculator)
+  expect_equal(ask(purpose = "verify", unit = "sites", reporting = "component")$design, "site_sample")
+  expect_equal(ask(purpose = "verify", unit = "sites", reporting = "component")$handover$generator$method, "stratified")
+
+  # Baseline/endline with a comparison group, same households -> DiD panel in the Evaluation Calculator
+  ev <- ask(purpose = "change", frame = "cluster_sizes", comparison = "groups_both", panel = "yes", random = "no")
+  expect_equal(ev$evaluation, "did_panel")
+  expect_equal(ev$handover$calculator$target, "evaluation")
+  expect_true(ev$handover$calculator$clustered)
+  expect_match(ev$stages[1], "comparison areas separately")
+  expect_equal(ev$handover$generator$method, "stratified_cluster")
+  expect_true(any(grepl("No random assignment", ev$warnings)))
+  expect_equal(ask(purpose = "change", comparison = "before_after", panel = "no")$evaluation, "independent")
+  expect_true(any(grepl("cannot show that the programme caused it", ask(purpose = "change", comparison = "before_after")$warnings)))
+
+  # Phone: list -> list sample; no list -> RDD with the Afghanistan caveat; mixed mode
+  expect_equal(ask(mode = "phone")$design, "phone_list")
+  rdd <- ask(mode = "phone", frame = "none")
+  expect_equal(rdd$design, "rdd")
+  expect_true(any(grepl("Afghanistan", rdd$warnings)))
+  expect_null(rdd$handover$generator)
+  expect_equal(ask(mode = "mixed")$design, "mixed_mode")
+
+  # Qualitative and other non-probability designs
+  expect_equal(ask(purpose = "qualitative")$design, "purposive")
+  expect_equal(ask(purpose = "qualitative", reporting = c("area", "gender"))$design, "purposive_groups")
+  expect_equal(ask(purpose = "qualitative", frame = "unlistable")$design, "snowball")
+  expect_equal(ask(frame = "unlistable")$design, "hidden_group")
+  expect_equal(ask(purpose = "pilot")$design, "pilot")
+
+  # Full list without constraints -> draw from the list; few sites -> all sites
+  expect_equal(ask()$design, "srs_list")
+  expect_equal(ask(reporting = "area")$design, "stratified_list")
+  expect_equal(ask(spread = "few")$design, "site_census")
+  expect_equal(ask(constraints = "budget")$design, "cluster")
+
+  # No household list: villages first, with listing; no village list either
+  nolist <- ask(frame = "none")
+  expect_equal(nolist$design, "cluster")
+  expect_true(any(grepl("village list first", nolist$stages)))
+  expect_true(nolist$handover$generator$cluster_list)
+  expect_false(nolist$handover$generator$pps)
+})
+
+test_that("decision tree: gender is a stratum only when it is on the unit list", {
+  expect_true(ask(reporting = "gender")$answers$stratify)
+  village <- ask(frame = "cluster_sizes", reporting = "gender")
+  expect_false(village$answers$stratify)
+  expect_equal(village$design, "cluster")
+  expect_true(any(grepl("cannot be a stratum", village$warnings)))
+})
+
+test_that("decision tree: coverage warnings", {
+  expect_true(any(grepl("Coverage: the list is incomplete", ask(constraints = "list_outdated")$warnings)))
+  expect_true(any(grepl("Coverage: phone samples", ask(mode = "phone")$warnings)))
+  expect_true(any(grepl("female enumerators", ask(constraints = "women")$warnings)))
+})
+
+test_that("decision tree: readable labels", {
+  expect_equal(decision_label("spread", "few"), "A few sites, all reachable")
+  expect_equal(decision_label("constraints", c("insecure", "budget")), "Insecure or inaccessible areas; Tight budget or time")
+  expect_equal(decision_label("constraints", character(0)), "None")
+})
+
+test_that("decision tree server: follows the answers, hands over and opens articles", {
+  sent <- NULL
+  opened <- NULL
+  testServer(decision_tree_server, args = list(on_handover = function(target, settings, name) sent <<- list(target, settings, name),
+                                               on_article = function(id) opened <<- id), {
+    session$setInputs(study_name = "", purpose = "level", unit = "people", frame = "unit_list", reporting = "overall",
+                      spread = "many", mode = "in_person", constraints = NULL)
+    expect_equal(recommendation()$design, "srs_list")
+    session$setInputs(reporting = "area", constraints = "insecure")
+    expect_equal(recommendation()$design, "stratified_cluster")
+
+    session$setInputs(to_calculator = 1)
+    expect_equal(sent[[1]], "sample")
+    expect_equal(sent[[2]]$method, "stratified_cluster")
+    expect_equal(sent[[3]], DESIGNS$stratified_cluster$name)
+    session$setInputs(to_generator = 1)
+    expect_equal(sent[[1]], "generator")
+
+    session$setInputs(purpose = "change", comparison = "groups_both", panel = "no", random = "yes")
+    session$setInputs(to_calculator = 2)
+    expect_equal(sent[[1]], "evaluation")
+    expect_equal(sent[[2]]$design, "did_cross")
+
+    session$setInputs(open_article = "replacement_protocol")
+    expect_equal(opened, "replacement_protocol")
+  })
+})
+
+test_that("decision tree: PDF report with quotes in the study name", {
   skip_if_not(rmarkdown::pandoc_available())
   testServer(decision_tree_server, {
-    session$setInputs(study_name = "Ghor \"PDM\" O'Neil's", survey_mode = "phone", generalization_required = "yes",
-                      subgroup_comparison = "no", population_data = "none", num_communities = "less_70",
-                      logistical_constraints = "no_constraints", analyze = 1)
-    expect_equal(selected_methods(), "rdd")
+    session$setInputs(study_name = "Ghor \"PDM\" O'Neil's", purpose = "change", unit = "people", frame = "none",
+                      reporting = c("area", "other"), other_group = "returnees", spread = "many", mode = "in_person",
+                      constraints = c("insecure", "women"), comparison = "groups_both", panel = "yes", random = "no")
     path <- output$download_report
     expect_true(file.exists(path))
     expect_gt(file.size(path), 1000)
   })
+  rmd <- decision_report_rmd(ask(reporting = c("area", "other"), other_group = "returnees"), "Test")
+  expect_match(rmd, "Strata: province or district and returnees", fixed = TRUE)
+  expect_match(rmd, "## Next Steps", fixed = TRUE)
 })
 
-test_that("decision tree: results follow changed answers after the first analysis", {
-  testServer(decision_tree_server, {
-    session$setInputs(study_name = "", survey_mode = "in_person", generalization_required = "yes",
-                      subgroup_comparison = "no", population_data = "complete", num_communities = "less_70",
-                      logistical_constraints = "no_constraints")
-    expect_null(recommendation())
-    session$setInputs(analyze = 1)
-    expect_equal(selected_methods(), c("simple_random", "systematic"))
-    session$setInputs(subgroup_comparison = "yes")
-    expect_equal(selected_methods(), "stratified")
-    expect_equal(recommendation()$params$subgroup_comparison, "yes")
+test_that("decision tree: hand-over updates the receiving tabs", {
+  suppressMessages({
+    library(shinyjs)
+    library(plotly)
+    source(file.path(root, "sampling_generation_functions.R"))
+    source(file.path(root, "modules", "sample_calculator_module.R"))
+    source(file.path(root, "modules", "evaluation_calculator_module.R"))
+    source(file.path(root, "modules", "sampling_generator_module.R"))
+  })
+  pdm <- ask(reporting = "area", constraints = "insecure")$handover
+  testServer(sample_calculator_server, {
+    session$setInputs(sampling_method = "simple_random", population_size = 10000, confidence_level = 0.95,
+                      margin_error = 0.05, expected_proportion = 0.5, non_response_rate = 5,
+                      data_input_method = "manual")
+    session$returned$apply_handover(pdm$calculator, "Test design")
+    session$flushReact()
+    expect_match(paste(as.character(output$handover_note), collapse = ""), "Settings from the Decision Tree")
+  })
+  testServer(sampling_generator_server, {
+    session$returned$apply_handover(pdm$generator, "Test design")
+    session$flushReact()
+    expect_match(paste(as.character(output$handover_note), collapse = ""), "province or district")
+  })
+  ev <- ask(purpose = "change", comparison = "groups_both", panel = "yes")$handover
+  testServer(evaluation_calculator_server, {
+    session$returned$apply_handover(ev$calculator, "Test design")
+    session$flushReact()
+    expect_match(paste(as.character(output$handover_note), collapse = ""), "Difference-in-differences, panel")
   })
 })

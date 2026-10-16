@@ -4,7 +4,7 @@ The ATR Sampling Tool helps you choose a sampling method, work out the sample si
 
 | Tab | Use it to |
 |-----|-----------|
-| Decision Tree | Get a recommended sampling method from six questions about your study |
+| Decision Tree | Get a recommended sampling design for your study, then send it to a calculator or the Sample Generator |
 | Sample Calculator | Size a monitoring survey: a target margin of error for a proportion or a mean |
 | Evaluation Calculator | Size a comparison between groups or survey rounds, or find the smallest difference a sample can detect |
 | Sample Generator | Upload your sampling frame and draw the sample, with weights and a methodology record |

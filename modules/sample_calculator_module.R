@@ -99,10 +99,11 @@ sample_calculator_ui <- function(id) {
       div(
         class = "col-12",
         h2("Sample Size Calculator", class = "text-center mb-3"),
-        p("Calculate the required sample size for your study using different sampling methods.", 
+        p("Calculate the required sample size for your study using different sampling methods.",
           class = "text-center text-muted")
       )
     ),
+    uiOutput(ns("handover_note")),
     
     # Method selection
     div(
@@ -1415,5 +1416,37 @@ sample_calculator_server <- function(id, study_name = NULL) {
         rmarkdown::render(temp_rmd, output_file = file, quiet = TRUE)
       }
     )
+
+    # Settings sent from the Decision Tree
+    handover <- reactiveVal(NULL)
+    output$handover_note <- renderUI(handover_note_ui(handover(), session$ns("dismiss_handover")))
+    observeEvent(input$dismiss_handover, handover(NULL))
+
+    list(apply_handover = function(settings, design_name) {
+      method_labels <- c(simple_random = "Simple Random Sampling", stratified = "Stratified Random Sampling",
+                         cluster = "Cluster Sampling", stratified_cluster = "Stratified Cluster Sampling",
+                         systematic = "Systematic Sampling")
+      clustered <- settings$method %in% c("cluster", "stratified_cluster")
+      stratified <- settings$method %in% c("stratified", "stratified_cluster")
+      updateSelectInput(session, "sampling_method", selected = settings$method)
+      updateNumericInput(session, "non_response_rate", value = settings$non_response)
+      if (clustered) {
+        for (suffix in c("", "_stratified")) {
+          updateNumericInput(session, paste0("cluster_size", suffix), value = settings$cluster_size)
+          updateNumericInput(session, paste0("intraclass_correlation", suffix), value = settings$icc)
+        }
+      }
+      if (stratified) updateRadioButtons(session, "precision_target", selected = settings$precision_target)
+      # Earlier results no longer match the settings; they return on the next calculation
+      # (full id: this runs from the Decision Tree, so shinyjs would use that module's namespace)
+      shinyjs::hide(session$ns("results_container"), asis = TRUE)
+      handover(list(design = design_name, action = "then click Calculate Sample Size", details = c(
+        paste("method:", method_labels[[settings$method]]),
+        if (clustered) sprintf("interviews per cluster %d and ICC %.2f (design effect %.2f, a common starting point)",
+                               settings$cluster_size, settings$icc, 1 + (settings$cluster_size - 1) * settings$icc),
+        paste0("non-response ", settings$non_response, "%"),
+        if (stratified) paste("precision target:", if (settings$precision_target == "total") "whole population" else "each stratum")
+      )))
+    })
   })
 }

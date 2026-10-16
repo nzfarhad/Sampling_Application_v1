@@ -36,6 +36,7 @@ evaluation_calculator_ui <- function(id) {
             class = "text-center text-muted")
         )
       ),
+      uiOutput(ns("handover_note")),
 
       # Design and mode
       div(
@@ -479,5 +480,24 @@ evaluation_calculator_server <- function(id, study_name = NULL) {
                                  `Power Curve` = curve), file)
       }
     )
+
+    # Settings sent from the Decision Tree
+    handover <- reactiveVal(NULL)
+    output$handover_note <- renderUI(handover_note_ui(handover(), session$ns("dismiss_handover")))
+    observeEvent(input$dismiss_handover, handover(NULL))
+
+    list(apply_handover = function(settings, design_name) {
+      updateSelectInput(session, "design", selected = settings$design)
+      updateCheckboxInput(session, "clustered", value = settings$clustered)
+      if (settings$clustered) {
+        updateNumericInput(session, "m", value = settings$m)
+        updateNumericInput(session, "icc", value = settings$icc)
+      }
+      handover(list(design = design_name, details = c(
+        paste("design:", names(EVALUATION_DESIGNS)[EVALUATION_DESIGNS == settings$design]),
+        if (settings$clustered) sprintf("clustered, %d interviews per cluster and ICC %.2f (a common starting point)", settings$m, settings$icc)
+        else "not clustered"
+      )))
+    })
   })
 }

@@ -50,6 +50,17 @@ async function openTab(page, name) {
   }
 }
 
+// Decision Tree answers: radio buttons and check boxes by input name and value
+async function answer(page, question, value) {
+  await page.locator(`input[name="decision_tree-${question}"][value="${value}"]`).check();
+  await settle(page);
+}
+
+async function expectTab(page, label, name) {
+  const active = (await page.locator("#main_navbar a.nav-link.active").getAttribute("data-value")) || "";
+  if (active !== name) report(label, `expected the ${name} tab, but "${active}" is open`);
+}
+
 // Layout checks on the active tab
 async function checkLayout(page, where) {
   const res = await page.evaluate(() => {
@@ -133,11 +144,14 @@ async function runAt(viewport, label) {
   const res = await checkLayout(page, `${label} How to Use`);
   await shot("1-how-to-use");
 
-  // Decision Tree
+  // Decision Tree: a PDM survey by province in insecure areas
   await openTab(page, "Decision Tree");
-  await page.locator("#decision_tree-analyze").click();
-  await settle(page);
-  if (!(await page.locator("#decision_tree-recommendations").innerText()).trim()) report(label, "decision tree: no recommendation");
+  if (await page.locator("#decision_tree-design_name").count()) report(label, "decision tree: recommendation shown before the purpose is answered");
+  await answer(page, "purpose", "level");
+  await answer(page, "reporting", "area");
+  await answer(page, "constraints", "insecure");
+  const design = (await page.locator("#decision_tree-design_name").innerText()).trim();
+  if (design !== "Stratified two-stage cluster sample") report(label, `decision tree: PDM design is "${design}"`);
   await checkLayout(page, `${label} Decision Tree`);
   await shot("2-decision-tree");
 
@@ -188,6 +202,44 @@ async function runAt(viewport, label) {
   if (!toc.includes("Replacement Protocol")) report(label, "guideline: search did not find Replacement Protocol");
   await checkLayout(page, `${label} Sampling Guideline`);
   await shot("6-sampling-guideline");
+  await page.locator("#wiki-search_input").fill("");
+  await settle(page);
+
+  // Decision Tree hand-over (last, because it changes the other tabs' settings)
+  await openTab(page, "Decision Tree");
+  await page.locator("#decision_tree-to_calculator").click();
+  await settle(page);
+  await expectTab(page, label, "Sample Calculator");
+  if (await page.locator("#sample_calculator-sampling_method").inputValue() !== "stratified_cluster") report(label, "hand-over: calculator method not set");
+  if (!(await page.locator("#sample_calculator-handover_note").innerText()).includes("Settings from the Decision Tree")) report(label, "hand-over: no note on the Sample Calculator");
+  if (await page.locator("#sample_calculator-results_container").isVisible()) report(label, "hand-over: old calculator results still shown");
+  await page.locator("#sample_calculator-calculate").click();
+  await settle(page);
+  if (!(await page.locator("#sample_calculator-sample_size_explanation").innerText()).includes("Stratified Cluster")) report(label, "hand-over: calculation does not use the new method");
+  await checkLayout(page, `${label} Sample Calculator (hand-over)`);
+  await shot("7-handover-calculator");
+
+  await openTab(page, "Decision Tree");
+  await page.locator("#decision_tree-to_generator").click();
+  await settle(page);
+  await expectTab(page, label, "Sample Generator");
+  if (await page.locator("#sampling_generator-sampling_method").inputValue() !== "stratified_cluster") report(label, "hand-over: generator method not set");
+
+  await openTab(page, "Decision Tree");
+  await answer(page, "purpose", "change");
+  await answer(page, "comparison", "groups_both");
+  await answer(page, "panel", "yes");
+  await page.locator("#decision_tree-to_calculator").click();
+  await settle(page);
+  await expectTab(page, label, "Evaluation Calculator");
+  if (await page.locator("#evaluation_calculator-design").inputValue() !== "did_panel") report(label, "hand-over: evaluation design not set");
+  await shot("8-handover-evaluation");
+
+  await openTab(page, "Decision Tree");
+  await page.locator("#decision_tree-recommendation_area .dt-article", { hasText: "Replacement Protocol" }).click();
+  await settle(page);
+  await expectTab(page, label, "Sampling Guideline");
+  if (!(await page.locator("#wiki-content_area").innerText()).includes("Replacement Protocol")) report(label, "decision tree: protocol link did not open the article");
 
   await context.close();
   return res.footer;
