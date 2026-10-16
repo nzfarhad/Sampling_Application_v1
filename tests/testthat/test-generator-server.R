@@ -122,3 +122,84 @@ test_that("generator: frame errors block the draw", {
     expect_null(generated_sample())
   })
 })
+
+# A cluster list: one row per village with its number of households
+cluster_list_csv <- function() {
+  set.seed(4)
+  d <- data.frame(
+    province = rep(c("A", "B", "C"), c(40, 30, 20)),
+    village = sprintf("V%02d", 1:90),
+    households = sample(3:40, 90, replace = TRUE)
+  )
+  d$village[c(5, 60)] <- "Same name"
+  path <- tempfile(fileext = ".csv")
+  write.csv(d, path, row.names = FALSE)
+  list(name = "clusters.csv", datapath = path, size = file.size(path), type = "text/csv")
+}
+
+list_inputs <- function(session, ...) {
+  base_inputs(session)
+  session$setInputs(dataset_file = cluster_list_csv())
+  session$setInputs(cluster_sampling_method = "cluster_list", cluster_list_variable = "village",
+                    cluster_population_variable = "households", cluster_list_size = 5, use_pps_cluster_list = TRUE,
+                    id_variable = "", ...)
+}
+
+test_that("generator: cluster list gives one row per selected cluster with its interviews", {
+  testServer(sampling_generator_server, {
+    list_inputs(session, sampling_method = "cluster", sample_size = 100, random_seed = 9)
+    session$setInputs(generate_sample = 1)
+    issues <- frame_check_result()$issues
+    expect_true(any(grepl("Same name [(]row 5[)]", issues$detail)))
+    session$setInputs(confirm_draw = 1)
+    s <- generated_sample()
+    main <- s$sample_type == "Sample"
+    expect_false(any(duplicated(s$cluster_id)))
+    expect_equal(sum(s$selection_hits[main]), 20)
+    expect_true(all(s$interviews[main] == pmin(5 * s$selection_hits[main], s$households[main])))
+    expect_equal(sum(!main), 2)
+    # Weights per interview add up to the households in the list
+    expect_equal(sum(s$base_weight[main] * s$interviews[main]), sum(read.csv(cluster_list_csv()$datapath)$households))
+    cs <- cluster_summary()
+    expect_equal(nrow(cs), 90)
+    expect_equal(sum(cs$interviews), sum(s$interviews[main]))
+    m <- methodology()
+    expect_equal(m$Value[m$Item == "Main sample drawn"], as.character(sum(s$interviews[main])))
+    expect_equal(m$Value[m$Item == "Clusters selected"], as.character(sum(main)))
+    path <- output$download_sample_excel
+    guide <- openxlsx::read.xlsx(path, "Column Guide")
+    expect_true("interviews" %in% guide$Column)
+  })
+})
+
+test_that("generator: cluster list without sizes needs equal probability", {
+  testServer(sampling_generator_server, {
+    list_inputs(session, sampling_method = "cluster", sample_size = 50, random_seed = 2)
+    session$setInputs(cluster_population_variable = "", generate_sample = 1)
+    expect_null(frame_check_result())
+    session$setInputs(use_pps_cluster_list = FALSE, generate_sample = 2)
+    session$setInputs(confirm_draw = 1)
+    s <- generated_sample()
+    expect_equal(sum(s$sample_type == "Sample"), 10)
+    expect_true(all(is.na(s$base_weight)))
+    expect_true(all(s$interviews[s$sample_type == "Sample"] == 5))
+  })
+})
+
+test_that("generator: stratified cluster list allocates by the households in each stratum", {
+  testServer(sampling_generator_server, {
+    list_inputs(session, sampling_method = "stratified_cluster", sample_size = 120, random_seed = 3,
+                strata_variable = "province")
+    preview <- allocation_preview()
+    expect_equal(preview$labels[2:3], c("Clusters", "Total size"))
+    expect_equal(preview$table$frame_units, c(40L, 30L, 20L))
+    hh <- read.csv(cluster_list_csv()$datapath)
+    expect_equal(preview$table$n_allocated, allocate_sample(as.numeric(tapply(hh$households, hh$province, sum)), 120))
+    session$setInputs(generate_sample = 1)
+    session$setInputs(confirm_draw = 1)
+    s <- generated_sample()
+    main <- s$sample_type == "Sample"
+    expect_equal(as.vector(tapply(s$selection_hits[main], s$stratum[main], sum)), preview$table$clusters_to_select)
+    expect_true(all(s$province == s$stratum))
+  })
+})

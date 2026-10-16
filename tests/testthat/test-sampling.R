@@ -170,3 +170,94 @@ test_that("same seed gives the same sample for every design, different seeds dif
     expect_false(any(duplicated(a$id)))
   }
 })
+make_cluster_list <- function(C = 60, seed = 1) {
+  set.seed(seed)
+  data.frame(village = sprintf("V%02d", seq_len(C)), hh = sample(2:30, C, replace = TRUE), stringsAsFactors = FALSE)
+}
+
+test_that("cluster list: each row is a cluster, listed once with its interviews", {
+  d <- make_cluster_list()
+  s <- suppressWarnings(cluster_list_sampling(d, "village", 100, 8, 3, use_pps = TRUE, pop_var = "hh", buffer_pct = 20))
+  main <- s$sample_type == "Sample"
+  expect_false(any(duplicated(s$village)))
+  expect_equal(sum(s$selection_hits[main]), 13)
+  expect_equal(sum(!main), 3)
+  expect_equal(s$reserve_order[!main], 1:3)
+  expect_equal(s$interviews, as.integer(pmin(8 * s$selection_hits, s$hh)))
+  # PPS weights per interview add up to the list total exactly
+  expect_equal(sum(s$base_weight[main] * s$interviews[main]), sum(d$hh))
+  expect_equal(s$p_stage1, 13 * s$hh / sum(d$hh))
+})
+
+test_that("cluster list: small clusters are capped and reported", {
+  d <- make_cluster_list()
+  d$hh[] <- 3
+  d$hh[1] <- 50
+  expect_warning(cluster_list_sampling(d, "village", 50, 5, 1, use_pps = TRUE, pop_var = "hh"), "smaller than the interviews needed")
+})
+
+test_that("cluster list: equal probability, with and without sizes", {
+  d <- make_cluster_list()
+  s <- suppressMessages(suppressWarnings(cluster_list_sampling(d, "village", 80, 8, 2, use_pps = FALSE, pop_var = "hh")))
+  expect_true(all(s$selection_hits == 1))
+  expect_equal(s$p_stage1, rep(10 / 60, nrow(s)))
+  expect_error(cluster_list_sampling(d, "village", 800, 8, 2, use_pps = FALSE), "Not enough clusters")
+  expect_error(cluster_list_sampling(d, "village", 80, 8, 2, use_pps = TRUE), "needs a cluster population variable")
+  s2 <- suppressMessages(cluster_list_sampling(d, "village", 80, 8, 2, use_pps = FALSE))
+  expect_true(all(is.na(s2$base_weight)))
+  expect_equal(s2$interviews, rep(8L, 10))
+})
+
+test_that("cluster list: repeated names stay separate clusters, blank and zero-size rows are excluded", {
+  d <- make_cluster_list()
+  d$village[c(3, 40)] <- "Twin"
+  ids <- cluster_list_ids(d, "village")
+  expect_equal(ids[c(3, 40)], c("Twin (row 3)", "Twin (row 40)"))
+  d$village[7] <- ""
+  d$hh[8] <- 0
+  s <- suppressMessages(suppressWarnings(cluster_list_sampling(d, "village", 500, 10, 4, use_pps = TRUE, pop_var = "hh")))
+  expect_false(any(s$village %in% c("", d$village[8])))
+  chk <- check_frame(d, list(method = "cluster", cluster_method = "cluster_list", cluster_var = "village",
+                             pop_var = "hh", n_units = 10, use_pps = TRUE, sample_size = 100))
+  expect_true(any(grepl("Twin [(]row 3[)]", chk$issues$detail)))
+  expect_equal(chk$exclusions$rows, c(1L, 1L))
+})
+
+test_that("cluster list: a unit list in cluster-list mode is flagged", {
+  d <- make_frame()
+  chk <- check_frame(d, list(method = "cluster", cluster_method = "cluster_list", cluster_var = "village",
+                             n_units = 5, use_pps = FALSE, sample_size = 50))
+  expect_true(any(grepl("use Method 1", chk$issues$detail)))
+})
+
+test_that("cluster list: stratified allocation uses each stratum's total size", {
+  d <- make_cluster_list(90)
+  d$province <- rep(c("A", "B", "C"), c(50, 30, 10))
+  spec <- list(method = "stratified_cluster", cluster_method = "cluster_list", strata_var = "province", allocation = "proportional",
+               cluster_var = "village", pop_var = "hh", n_units = 5, use_pps = TRUE, sample_size = 150, buffer_pct = 10, seed = 8)
+  alloc <- compute_allocation(d, spec)
+  expect_equal(alloc$frame_population, as.numeric(tapply(d$hh, d$province, sum)))
+  expect_equal(alloc$n_allocated, allocate_sample(alloc$frame_population, 150))
+  expect_equal(alloc$clusters_to_select, as.integer(ceiling(alloc$n_allocated / 5)))
+  res <- suppressMessages(suppressWarnings(generate_sample_design(d, spec)))
+  s <- res$sample
+  expect_equal(names(s)[seq_len(length(DESIGN_COLUMNS) + 1)], c(DESIGN_COLUMNS, "interviews"))
+  main <- s$sample_type == "Sample"
+  expect_equal(sum(s$base_weight[main] * s$interviews[main]), sum(d$hh))
+  cs <- summarise_clusters(d, s, spec)
+  expect_equal(nrow(cs), 90)
+  expect_equal(sum(cs$times_selected), sum(alloc$clusters_to_select))
+  # Without sizes, strata are weighted by their number of clusters
+  spec$pop_var <- NULL
+  spec$use_pps <- FALSE
+  expect_equal(compute_allocation(d, spec)$n_allocated, c(83L, 50L, 17L))
+})
+
+test_that("a cluster list in unit-list mode points to Method 2", {
+  d <- make_cluster_list()
+  chk <- check_frame(d, list(method = "cluster", cluster_method = "population_units", cluster_var = "village",
+                             n_units = 5, use_pps = TRUE, sample_size = 50))
+  expect_true(any(grepl("use Method 2", chk$issues$detail)))
+  expect_false(any(grepl("use Method 2", check_frame(make_frame(), list(method = "cluster", cluster_var = "village",
+                                                                         n_units = 5, use_pps = TRUE, sample_size = 50))$issues$detail)))
+})
