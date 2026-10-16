@@ -67,3 +67,17 @@ test_that("decision tree: readable labels and a PDF with quotes in the study nam
     expect_gt(file.size(path), 1000)
   })
 })
+
+test_that("decision tree: results follow changed answers after the first analysis", {
+  testServer(decision_tree_server, {
+    session$setInputs(study_name = "", survey_mode = "in_person", generalization_required = "yes",
+                      subgroup_comparison = "no", population_data = "complete", num_communities = "less_70",
+                      logistical_constraints = "no_constraints")
+    expect_null(recommendation())
+    session$setInputs(analyze = 1)
+    expect_equal(selected_methods(), c("simple_random", "systematic"))
+    session$setInputs(subgroup_comparison = "yes")
+    expect_equal(selected_methods(), "stratified")
+    expect_equal(recommendation()$params$subgroup_comparison, "yes")
+  })
+})

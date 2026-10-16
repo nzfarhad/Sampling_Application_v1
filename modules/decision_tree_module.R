@@ -322,6 +322,13 @@ decision_tree_server <- function(id, study_name = NULL) {
       recommendation(c(recommend_sampling(current_params()), list(params = current_params())))
     })
 
+    # Once shown, keep the recommendation in step with the answers
+    observeEvent(current_params(), {
+      if (!is.null(recommendation())) {
+        recommendation(c(recommend_sampling(current_params()), list(params = current_params())))
+      }
+    }, ignoreInit = TRUE)
+
     selected_methods <- reactive(recommendation()$methods)
 
     output$recommendations <- renderUI({
@@ -376,8 +383,8 @@ decision_tree_server <- function(id, study_name = NULL) {
         paste0(study_name_clean, "-", format(Sys.time(), "%Y%m%d"), ".pdf")
       },
       content = function(file) {
-        rec <- recommendation()
-        if (is.null(rec)) rec <- c(recommend_sampling(current_params()), list(params = current_params()))
+        # Always report the current answers, even if they changed after the last analysis
+        rec <- c(recommend_sampling(current_params()), list(params = current_params()))
         study <- if (is.null(input$study_name)) "" else trimws(input$study_name)
         # YAML single-quoted string: double any single quote; drop characters LaTeX cannot print
         yaml_title <- gsub("'", "''", ascii_text(if (study != "") paste(study, "- Sampling Method Recommendations") else "Sampling Method Recommendations"))
