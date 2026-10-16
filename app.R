@@ -112,7 +112,8 @@ server <- function(input, output, session) {
   # Initialize modules with shared study_name
   user_guide_server("user_guide")
   calculator <- sample_calculator_server("sample_calculator", study_name = study_name)
-  evaluation <- evaluation_calculator_server("evaluation_calculator", study_name = study_name)
+  evaluation <- evaluation_calculator_server("evaluation_calculator", study_name = study_name,
+                                             on_article = function(article_id) show_article(article_id))
   generator <- sampling_generator_server("sampling_generator", study_name = study_name)
   wiki <- wiki_server("wiki")
 
@@ -121,6 +122,10 @@ server <- function(input, output, session) {
   open_tab <- function(tab) {
     nav_select("main_navbar", selected = tab, session = session)
     shinyjs::runjs("window.scrollTo(0, 0);")
+  }
+  show_article <- function(article_id) {
+    wiki$show_article(article_id)
+    open_tab("Sampling Guideline")
   }
   decision_tree_server(
     "decision_tree", study_name = study_name,
@@ -131,10 +136,7 @@ server <- function(input, output, session) {
         generator = { generator$apply_handover(settings, design_name); open_tab("Sample Generator") }
       )
     },
-    on_article = function(article_id) {
-      wiki$show_article(article_id)
-      open_tab("Sampling Guideline")
-    }
+    on_article = show_article
   )
   
   # Initialize tooltips

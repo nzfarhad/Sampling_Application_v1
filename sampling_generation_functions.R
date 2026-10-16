@@ -4,9 +4,13 @@
 # Date: 2025
 #
 # Every sampling function returns the selected rows of `data` with design columns:
-#   - sample_type:    "Sample" for the main sample, "Buffer" for reserve units
+#   - sample_type:    "Sample" for the main sample, "Buffer" for reserve units;
+#                     cluster designs add "Reserve cluster" (units to interview in a
+#                     reserve cluster) and "Reserve cluster buffer" (its reserve units)
 #   - reserve_order:  NA for main units; 1, 2, 3 ... for reserves (use in this order;
 #                     for cluster designs the order is within each cluster)
+#   - cluster_reserve_order: 1, 2, 3 ... for reserve clusters, used in this order
+#                     when a selected cluster cannot be reached; NA otherwise
 #   - stratum:        stratum value (stratified designs only)
 #   - cluster_id:     cluster value (cluster designs only)
 #   - selection_hits: times the cluster was selected (PPS with replacement can exceed 1)
@@ -21,7 +25,7 @@
 # Problems that do not stop the draw (short clusters, excluded rows) are raised
 # with warning(); notes about how inputs were interpreted are raised with message().
 
-DESIGN_COLUMNS <- c("sample_type", "reserve_order", "stratum", "cluster_id", "selection_hits",
+DESIGN_COLUMNS <- c("sample_type", "reserve_order", "cluster_reserve_order", "stratum", "cluster_id", "selection_hits",
                     "p_stage1", "p_stage2", "p_incl", "base_weight")
 
 # =============================================================================
@@ -94,6 +98,11 @@ set_probabilities <- function(out, p_stage1, p_stage2) {
 #' Is a Value Missing or Blank
 is_blank <- function(x) {
   is.na(x) | trimws(as.character(x)) == ""
+}
+
+#' Is the Design a Cluster Sample From a Cluster List (one row per cluster)
+is_cluster_list <- function(spec) {
+  isTRUE(spec$method %in% c("cluster", "stratified_cluster")) && identical(spec$cluster_method, "cluster_list")
 }
 
 #' Cluster Measure of Size
@@ -308,10 +317,13 @@ systematic_sampling <- function(data, sample_size, seed, buffer_size = 0, sort_b
 #' @param pop_var Optional population variable used as the measure of size; if
 #'   NULL, the number of frame rows per cluster is used
 #' @param buffer_pct Reserve units per cluster, as a percentage of its main sample
+#' @param reserve_clusters Number of reserve clusters, drawn from the clusters not
+#'   selected (see draw_reserve_clusters), each with n_units units and its own buffer
 #'
 #' @return The selected rows with design columns
 two_stage_cluster_sampling <- function(data, cluster_var, sample_size, n_units, seed,
-                                       use_pps = TRUE, pop_var = NULL, buffer_pct = 0) {
+                                       use_pps = TRUE, pop_var = NULL, buffer_pct = 0,
+                                       reserve_clusters = 0) {
   data <- as.data.frame(data)
   validate_sampling_params(data, sample_size, cluster_var, n_units)
   if (!is.null(pop_var) && pop_var != "" && !pop_var %in% names(data)) {
@@ -360,7 +372,172 @@ two_stage_cluster_sampling <- function(data, cluster_var, sample_size, n_units, 
   hits <- setNames(as.integer(hits), names(hits))
 
   out <- draw_within_clusters(data, cluster_var, hits, n_units, buffer_pct)
-  set_probabilities(out, unname(p_stage1[out$cluster_id]), out$p_stage2)
+  out$cluster_reserve_order <- rep(NA_integer_, nrow(out))
+  out <- set_probabilities(out, unname(p_stage1[out$cluster_id]), out$p_stage2)
+
+  # Reserve clusters are drawn after the main sample, so adding them does not
+  # change the main sample for the same seed
+  reserve <- draw_reserve_clusters(clusters$cluster, setdiff(clusters$cluster, names(hits)),
+                                   clusters$population, use_pps, reserve_clusters)
+  if (length(reserve) == 0) return(out)
+  r_out <- withCallingHandlers(
+    draw_within_clusters(data, cluster_var, setNames(rep(1L, length(reserve)), reserve), n_units, buffer_pct),
+    warning = function(w) {
+      warning("Reserve clusters: ", conditionMessage(w), call. = FALSE)
+      invokeRestart("muffleWarning")
+    }
+  )
+  r_out$sample_type <- ifelse(r_out$sample_type == "Sample", "Reserve cluster", "Reserve cluster buffer")
+  r_out$cluster_reserve_order <- match(r_out$cluster_id, reserve)
+  r_out <- set_probabilities(r_out, unname(p_stage1[r_out$cluster_id]), r_out$p_stage2)
+  out <- rbind(out, r_out)
+  rownames(out) <- NULL
+  out
+}
+
+#' Draw Reserve Clusters
+#'
+#' Reserve clusters come from the clusters not selected, by the same method:
+#' PPS without replacement (sequentially, in proportion to size) or equal
+#' probability. They are returned in the order they should be used.
+#'
+#' @param clusters All cluster IDs that could be selected
+#' @param pool Cluster IDs not selected
+#' @param size Size measure per cluster (same order as `clusters`)
+#' @param use_pps Logical: draw in proportion to size
+#' @param n Number of reserve clusters wanted
+#'
+#' @return Character vector of reserve cluster IDs, in order of use
+draw_reserve_clusters <- function(clusters, pool, size, use_pps, n) {
+  if (is.null(n) || is.na(n) || n <= 0) return(character(0))
+  n <- as.integer(n)
+  if (length(pool) < n) {
+    warning("Only ", length(pool), " cluster(s) were left for the ", n, " reserve clusters requested.", call. = FALSE)
+    n <- length(pool)
+  }
+  if (n == 0) return(character(0))
+  if (use_pps) {
+    pool[sample.int(length(pool), n, prob = size[match(pool, clusters)])]
+  } else {
+    pool[sample.int(length(pool), n)]
+  }
+}
+
+#' Cluster IDs for a Cluster List
+#'
+#' In a cluster list each row is one cluster. A name that appears on more than
+#' one row (e.g. the same village name in two provinces) gets the row number
+#' appended, so each row stays a separate cluster.
+#'
+#' @param data A data frame with one row per cluster
+#' @param cluster_var Character string specifying the cluster name or ID variable
+#'
+#' @return Character vector, one ID per row; NA for rows with no cluster name
+cluster_list_ids <- function(data, cluster_var) {
+  labels <- as.character(data[[cluster_var]])
+  labels[is_blank(labels)] <- NA
+  dup <- !is.na(labels) & (duplicated(labels) | duplicated(labels, fromLast = TRUE))
+  labels[dup] <- paste0(labels[dup], " (row ", which(dup), ")")
+  labels
+}
+
+#' Two-Stage Cluster Sampling From a Cluster List
+#'
+#' Each row of `data` is one cluster with its size (e.g. households). Stage 1
+#' selects a = ceiling(sample_size / n_units) clusters, with PPS (with
+#' replacement) or equal probability (without replacement). Stage 2 happens in
+#' the field: the sample lists each selected cluster once, with the number of
+#' interviews to do there (n_units per selection, capped at the cluster size).
+#' Reserve clusters are drawn from the clusters not selected, in the order they
+#' should be used.
+#'
+#' Probabilities: as for two_stage_cluster_sampling, with p_stage2 =
+#' interviews / (selections * size). Without a size, p_stage2, p_incl and
+#' base_weight are left blank until the selected clusters are listed.
+#'
+#' @param data A data frame with one row per cluster
+#' @param cluster_var Character string specifying the cluster name or ID variable
+#' @param sample_size Target number of interviews in the main sample
+#' @param n_units Interviews per selected cluster
+#' @param seed Random seed for reproducibility
+#' @param use_pps Logical: select clusters with probability proportional to size
+#' @param pop_var Cluster size variable (required for PPS)
+#' @param reserve_clusters Number of reserve clusters (see draw_reserve_clusters)
+#' @param ids Cluster IDs (see cluster_list_ids)
+#'
+#' @return One row per selected or reserve cluster, with design columns and `interviews`
+cluster_list_sampling <- function(data, cluster_var, sample_size, n_units, seed, use_pps = TRUE,
+                                  pop_var = NULL, reserve_clusters = 0, ids = cluster_list_ids(data, cluster_var)) {
+  data <- as.data.frame(data)
+  if (is.null(cluster_var) || !cluster_var %in% names(data)) stop("Cluster variable not found in data")
+  has_pop <- !is.null(pop_var) && pop_var != ""
+  if (has_pop && !pop_var %in% names(data)) stop("Cluster population variable not found in data")
+  if (use_pps && !has_pop) stop("PPS selection from a cluster list needs a cluster population variable")
+  if (is.null(sample_size) || is.na(sample_size) || sample_size <= 0) stop("Sample size must be a positive number")
+  if (is.null(n_units) || is.na(n_units) || n_units <= 0) stop("Interviews per cluster must be a positive number")
+  set.seed(seed)
+
+  blank <- is.na(ids)
+  if (any(blank)) {
+    warning(sum(blank), " row(s) have no value in '", cluster_var, "' and were excluded from the list.", call. = FALSE)
+  }
+  size <- if (has_pop) suppressWarnings(as.numeric(data[[pop_var]])) else rep(NA_real_, nrow(data))
+  no_size <- !blank & (is.na(size) | size <= 0)
+  if (use_pps && any(no_size)) {
+    warning(sum(no_size), " cluster(s) have a missing or zero size and cannot be selected: ",
+            paste(head(ids[no_size], 20), collapse = ", "), if (sum(no_size) > 20) ", ..." else "", call. = FALSE)
+  }
+  eligible <- which(!blank & !(use_pps & no_size))
+  if (length(eligible) == 0) stop(if (use_pps) "No clusters with a valid size measure" else "No clusters in the list")
+
+  n_clusters <- ceiling(sample_size / n_units)
+  if (use_pps) {
+    draws <- eligible[sample.int(length(eligible), n_clusters, replace = TRUE, prob = size[eligible])]
+    p_stage1 <- n_clusters * size / sum(size[eligible])
+  } else {
+    if (n_clusters > length(eligible)) {
+      stop("Not enough clusters for the requested sample size (need ", n_clusters,
+           ", list has ", length(eligible), ")")
+    }
+    draws <- eligible[sample.int(length(eligible), n_clusters)]
+    p_stage1 <- rep(n_clusters / length(eligible), nrow(data))
+  }
+
+  # Each selected cluster once, in the order first drawn
+  hits <- table(factor(draws, levels = unique(draws)))
+  main_rows <- as.integer(names(hits))
+
+  # Reserve clusters from those not selected, by the same selection method
+  reserve_rows <- as.integer(draw_reserve_clusters(as.character(eligible), as.character(setdiff(eligible, main_rows)),
+                                                   size[eligible], use_pps, reserve_clusters))
+  n_reserve <- length(reserve_rows)
+
+  rows <- c(main_rows, reserve_rows)
+  out <- label_sample(data, main_rows, reserve_rows)
+  out$sample_type[out$sample_type == "Buffer"] <- "Reserve cluster"
+  out$reserve_order <- rep(NA_integer_, nrow(out))
+  out$cluster_reserve_order <- c(rep(NA_integer_, length(main_rows)), seq_len(n_reserve))
+  out$cluster_id <- ids[rows]
+  out$selection_hits <- c(as.integer(hits), rep(1L, n_reserve))
+  wanted <- out$selection_hits * n_units
+  size_out <- size[rows]
+  capped <- !is.na(size_out) & size_out < wanted
+  out$interviews <- as.integer(ifelse(capped, floor(size_out), wanted))
+
+  short <- capped & out$sample_type == "Sample"
+  if (any(short)) {
+    warning(sum(short), " selected cluster(s) are smaller than the interviews needed; all their units are interviewed: ",
+            paste(sprintf("%s (needs %d, size %s)", out$cluster_id[short], wanted[short], format(size_out[short])), collapse = "; "),
+            call. = FALSE)
+  }
+  message("Cluster list: each row is one cluster. The sample lists the selected clusters and the interviews to do in each; ",
+          "select the units within each cluster in the field (e.g. from a household listing).")
+  if (any(is.na(size_out) & out$sample_type == "Sample")) {
+    message("No size for ", sum(is.na(size_out) & out$sample_type == "Sample"), " selected cluster(s): p_stage2 and the weights are left blank. ",
+            "Count the units in each when it is listed, and set p_stage2 = interviews / units listed.")
+  }
+
+  set_probabilities(out, p_stage1[rows], out$interviews / (out$selection_hits * size_out))
 }
 
 # =============================================================================
@@ -378,9 +555,10 @@ two_stage_cluster_sampling <- function(data, cluster_var, sample_size, n_units, 
 #' @param method "equal", "proportional", "neyman" or "manual"
 #' @param min_n Minimum sample size per stratum (capped at the stratum's frame size)
 #' @param values Neyman: standard deviation per stratum; manual: sample size per stratum
+#' @param cap Most units a stratum can take (default: its population)
 #'
 #' @return Integer sample size per stratum
-allocate_sample <- function(population, n, method = "proportional", min_n = 0, values = NULL) {
+allocate_sample <- function(population, n, method = "proportional", min_n = 0, values = NULL, cap = population) {
   H <- length(population)
 
   if (method == "manual") {
@@ -390,7 +568,7 @@ allocate_sample <- function(population, n, method = "proportional", min_n = 0, v
     return(as.integer(round(values)))
   }
 
-  if (n > sum(population)) stop("Sample size (", n, ") exceeds the frame size (", sum(population), ")")
+  if (n > sum(cap)) stop("Sample size (", n, ") exceeds the frame size (", sum(cap), ")")
 
   target <- switch(method,
     equal = rep(1, H),
@@ -405,7 +583,7 @@ allocate_sample <- function(population, n, method = "proportional", min_n = 0, v
   )
   if (sum(target) <= 0) stop("Allocation weights are all zero")
 
-  min_n <- pmin(rep_len(min_n, H), population)
+  min_n <- pmin(rep_len(min_n, H), cap)
   if (sum(min_n) > n) {
     stop("The minimum per stratum needs ", sum(min_n), " units, more than the total sample size (", n, ")")
   }
@@ -420,10 +598,10 @@ allocate_sample <- function(population, n, method = "proportional", min_n = 0, v
       remaining <- n - sum(fixed[!free])
       alloc[free] <- if (sum(target[free]) > 0) remaining * target[free] / sum(target[free]) else 0
     }
-    high <- free & alloc > population
+    high <- free & alloc > cap
     low <- free & !high & alloc < min_n
     if (!any(high | low)) break
-    fixed[high] <- population[high]
+    fixed[high] <- cap[high]
     fixed[low] <- min_n[low]
   }
 
@@ -431,7 +609,7 @@ allocate_sample <- function(population, n, method = "proportional", min_n = 0, v
   short <- n - sum(out)
   if (short > 0) {
     frac <- alloc - out
-    frac[out >= population] <- -Inf
+    frac[out >= cap] <- -Inf
     idx <- order(-frac)[seq_len(short)]
     out[idx] <- out[idx] + 1
   }
@@ -452,6 +630,23 @@ compute_allocation <- function(data, spec) {
   frame_units <- table(strata[keep])
   stratum_names <- names(frame_units)
   population <- as.numeric(frame_units)
+  cap <- population
+
+  # From a cluster list, each row is a cluster: allocate by the clusters' total
+  # size, or by the number of clusters when there is no size
+  list_mode <- is_cluster_list(spec)
+  if (list_mode) {
+    has_pop <- !is.null(spec$pop_var) && spec$pop_var != ""
+    clusters_in_frame <- population
+    if (has_pop) {
+      size <- suppressWarnings(as.numeric(data[[spec$pop_var]][keep]))
+      size[is.na(size) | size < 0] <- 0
+      population <- as.numeric(tapply(size, strata[keep], sum)[stratum_names])
+      cap <- floor(population)
+    } else {
+      cap <- clusters_in_frame * (if (is.null(spec$n_units) || is.na(spec$n_units)) 1 else spec$n_units)
+    }
+  }
 
   values <- NULL
   if (spec$allocation %in% c("neyman", "manual")) {
@@ -465,21 +660,32 @@ compute_allocation <- function(data, spec) {
   }
 
   n_alloc <- allocate_sample(population, spec$sample_size, spec$allocation,
-                             if (is.null(spec$min_per_stratum)) 0 else spec$min_per_stratum, values)
+                             if (is.null(spec$min_per_stratum)) 0 else spec$min_per_stratum, values, cap)
 
   set.seed(spec$seed)
   stratum_seeds <- sample.int(.Machine$integer.max, length(stratum_names))
 
-  alloc <- data.frame(
-    stratum = stratum_names,
-    frame_units = as.integer(population),
-    stringsAsFactors = FALSE
-  )
+  if (list_mode) {
+    alloc <- data.frame(stratum = stratum_names, clusters_in_frame = as.integer(clusters_in_frame), stringsAsFactors = FALSE)
+    if (has_pop) alloc$frame_population <- population
+  } else {
+    alloc <- data.frame(
+      stratum = stratum_names,
+      frame_units = as.integer(population),
+      stringsAsFactors = FALSE
+    )
+  }
   if (spec$allocation %in% c("neyman", "manual")) {
     input <- spec$allocation_values
     alloc$allocation_input <- if (is.null(input)) NA_real_ else unname(input[stratum_names])
   }
   alloc$n_allocated <- n_alloc
+  if (list_mode) {
+    if (has_pop) alloc$sampling_fraction_pct <- round(n_alloc / population * 100, 2)
+    alloc$clusters_to_select <- as.integer(ceiling(n_alloc / spec$n_units))
+    alloc$seed <- stratum_seeds
+    return(alloc)
+  }
   alloc$sampling_fraction_pct <- round(n_alloc / population * 100, 2)
 
   if (spec$method == "stratified_cluster") {
@@ -505,27 +711,36 @@ compute_allocation <- function(data, spec) {
 #' @param within "simple_random" or "systematic" (ignored for cluster designs)
 #' @param sort_by Optional sort variable for systematic selection
 #' @param cluster_var,n_units,use_pps,pop_var,buffer_pct Cluster settings (see two_stage_cluster_sampling)
+#' @param cluster_list Logical: the frame is a cluster list (see cluster_list_sampling)
+#' @param reserve_clusters Reserve clusters per stratum
 #'
 #' @return The selected rows with design columns, including stratum
 stratified_sampling <- function(data, strata_var, allocation, within = "simple_random", sort_by = NULL,
                                 cluster_var = NULL, n_units = NULL, use_pps = TRUE, pop_var = NULL,
-                                buffer_pct = 0) {
+                                buffer_pct = 0, cluster_list = FALSE, reserve_clusters = 0) {
   data <- as.data.frame(data)
   strata <- as.character(data[[strata_var]])
+  # Cluster list IDs come from the whole list, so they match the cluster summary
+  ids <- if (cluster_list) cluster_list_ids(data, cluster_var) else NULL
   pieces <- list()
+  rule_reported <- FALSE
 
   for (i in seq_len(nrow(allocation))) {
     h <- allocation$stratum[i]
     n_h <- allocation$n_allocated[i]
     if (n_h <= 0) next
-    sub <- data[!is.na(strata) & strata == h, , drop = FALSE]
+    rows <- which(!is.na(strata) & strata == h)
+    sub <- data[rows, , drop = FALSE]
     prefix <- paste0("Stratum ", h, ": ")
 
     piece <- withCallingHandlers(
       tryCatch({
-        if (!is.null(cluster_var) && cluster_var != "") {
+        if (cluster_list) {
+          cluster_list_sampling(sub, cluster_var, n_h, n_units, allocation$seed[i],
+                                use_pps, pop_var, reserve_clusters, ids[rows])
+        } else if (!is.null(cluster_var) && cluster_var != "") {
           two_stage_cluster_sampling(sub, cluster_var, n_h, n_units, allocation$seed[i],
-                                     use_pps, pop_var, buffer_pct)
+                                     use_pps, pop_var, buffer_pct, reserve_clusters)
         } else if (within == "systematic") {
           systematic_sampling(sub, n_h, allocation$seed[i], allocation$buffer[i], sort_by)
         } else {
@@ -537,8 +752,11 @@ stratified_sampling <- function(data, strata_var, allocation, within = "simple_r
         invokeRestart("muffleWarning")
       },
       message = function(m) {
-        # The size-measure rule is the same in every stratum; report it once
-        if (i == 1 || !grepl("^Cluster size measure", conditionMessage(m))) {
+        # The size-measure rule is the same in every stratum; report it once, without a stratum
+        if (grepl("^Cluster (size measure|list)", conditionMessage(m))) {
+          if (!rule_reported) message(trimws(conditionMessage(m)))
+          rule_reported <<- TRUE
+        } else {
           message(prefix, trimws(conditionMessage(m)))
         }
         invokeRestart("muffleMessage")
@@ -603,8 +821,79 @@ check_frame <- function(data, spec) {
     }
   }
 
+  # Clusters from a cluster list: each row is one cluster
+  is_list <- is_cluster_list(spec)
+  if (is_list) {
+    ids <- cluster_list_ids(data, spec$cluster_var)
+    n_missing <- sum(is.na(ids))
+    if (n_missing > 0) {
+      add("warning", "Clusters", paste(n_missing, "row(s) have no cluster name and are excluded"))
+      exclude(paste0("No value in cluster variable '", spec$cluster_var, "'"), n_missing)
+    }
+    named <- !is.na(ids)
+    labels <- as.character(data[[spec$cluster_var]])
+    dup <- named & (duplicated(labels) | duplicated(labels, fromLast = TRUE))
+    n_list <- sum(named)
+    if (any(dup)) {
+      if (sum(dup) > n_list / 2) {
+        add("warning", "Clusters", paste0(sum(dup), " of ", n_list, " rows share a cluster name with another row. ",
+                                          "Method 2 treats every row as a separate cluster; if the file lists units (e.g. households), use Method 1"))
+      } else {
+        example <- ids[dup][1]
+        add("warning", "Clusters", paste0(sum(dup), " rows share a cluster name with another row (e.g. the same village name in two provinces). ",
+                                          "Each row is kept as a separate cluster, and its ID gets the row number, e.g. '", example,
+                                          "'. Choose a unique ID column if the file has one"))
+      }
+    } else {
+      add("ok", "Clusters", paste(format(n_list, big.mark = ","), "clusters, one per row, all names unique"))
+    }
+
+    has_pop <- !is.null(spec$pop_var) && spec$pop_var != ""
+    size <- if (has_pop) suppressWarnings(as.numeric(data[[spec$pop_var]])) else rep(NA_real_, nrow(data))
+    if (has_pop && all(is.na(size[named]))) {
+      add("error", "Cluster size", paste0("'", spec$pop_var, "' has no numeric values"))
+    } else if (has_pop) {
+      add("info", "Cluster size", paste0("'", spec$pop_var, "' is each cluster's size, read as the units that can be interviewed (e.g. households). ",
+                                         "Interviews in a cluster are capped at its size"))
+      bad <- named & (is.na(size) | size <= 0)
+      if (any(bad)) {
+        if (isTRUE(spec$use_pps)) {
+          add("warning", "Cluster size", paste(sum(bad), "cluster(s) have a missing or zero size and cannot be selected"))
+          exclude("Cluster has a missing or zero size measure", sum(bad))
+        } else {
+          add("warning", "Cluster size", paste(sum(bad), "cluster(s) have a missing or zero size; if selected, their weights are left blank"))
+        }
+      }
+      small <- named & !bad & size < spec$n_units
+      if (any(small)) {
+        advice <- if (mean(small[named]) > 0.2) {
+          paste0(". Consider fewer interviews per cluster (the median cluster size is ", format(stats::median(size[named & !bad])),
+                 ") or merging small clusters with neighbours")
+        } else ""
+        add("warning", "Cluster size", paste0(sum(small), " of ", n_list, " clusters are smaller than ", spec$n_units,
+                                              "; if selected, all their units are interviewed and the sample falls short", advice))
+      } else {
+        add("ok", "Cluster size", paste("All clusters have at least", spec$n_units, "units"))
+      }
+    } else {
+      add("info", "Cluster size", "No population variable: clusters are selected with equal probability, and p_stage2 and the weights are left blank until the selected clusters are listed")
+    }
+
+    if (spec$method == "cluster") {
+      needed <- ceiling(spec$sample_size / spec$n_units)
+      eligible <- if (has_pop && isTRUE(spec$use_pps)) sum(named & !is.na(size) & size > 0) else n_list
+      add("info", "Clusters", paste0(needed, " cluster selections of ", spec$n_units, " interviews from ",
+                                     format(eligible, big.mark = ","), " clusters",
+                                     if (has_pop) paste0(" (total size ", format(sum(size[named & size > 0], na.rm = TRUE), big.mark = ","), ")") else ""))
+      if (!isTRUE(spec$use_pps) && needed > eligible) add("error", "Clusters", paste("Need", needed, "clusters but the list has", eligible))
+      if (has_pop && spec$sample_size > sum(size[named & size > 0], na.rm = TRUE)) {
+        add("error", "Sample size", "The sample is larger than the total size of all clusters")
+      }
+    }
+  }
+
   # Clusters
-  if (is_cluster) {
+  if (is_cluster && !is_list) {
     cl <- data[[spec$cluster_var]]
     n_missing <- sum(is_blank(cl))
     if (n_missing > 0) {
@@ -632,6 +921,10 @@ check_frame <- function(data, spec) {
     } else {
       add("ok", "Cluster size", paste("All", nrow(mos$table), "clusters have at least", spec$n_units, "units"))
     }
+    if (mean(mos$table$frame_units == 1) > 0.5) {
+      add("warning", "Clusters", paste0("Most clusters have only one row. If each row of the file is a cluster (e.g. a village with its population), ",
+                                        "use Method 2: Sample from Cluster List"))
+    }
     if (is_strat) {
       keep <- !is_blank(cl) & !is_blank(data[[spec$strata_var]])
       strata_per_cluster <- tapply(as.character(data[[spec$strata_var]])[keep], as.character(cl)[keep], function(v) length(unique(v)))
@@ -649,7 +942,8 @@ check_frame <- function(data, spec) {
       NULL
     })
     if (!is.null(allocation)) {
-      over <- allocation$n_allocated > allocation$frame_units
+      frame_total <- if (is_list) allocation$frame_population else allocation$frame_units
+      over <- if (is.null(frame_total)) rep(FALSE, nrow(allocation)) else allocation$n_allocated > frame_total
       if (any(over)) add("error", "Allocation", paste("Allocated sample exceeds the frame in:", paste(allocation$stratum[over], collapse = ", ")))
       if (spec$method == "stratified_cluster" && !isTRUE(spec$use_pps)) {
         few <- allocation$clusters_to_select > allocation$clusters_in_frame
@@ -664,11 +958,23 @@ check_frame <- function(data, spec) {
   } else if (spec$method %in% c("simple_random", "systematic")) {
     total <- spec$sample_size + round(spec$sample_size * spec$buffer_pct / 100)
     if (total > nrow(data)) add("error", "Sample size", paste("Sample plus buffer (", total, ") exceeds the frame (", nrow(data), ")"))
-  } else if (spec$method == "cluster") {
+  } else if (spec$method == "cluster" && !is_list) {
     needed <- ceiling(spec$sample_size / spec$n_units)
     n_cl <- length(unique(as.character(data[[spec$cluster_var]][!is_blank(data[[spec$cluster_var]])])))
     add("info", "Clusters", paste(needed, "cluster selections of", spec$n_units, "units from", n_cl, "clusters"))
     if (!isTRUE(spec$use_pps) && needed > n_cl) add("error", "Clusters", paste("Need", needed, "clusters but the frame has", n_cl))
+  }
+
+  # Reserve clusters
+  if (is_cluster) {
+    r <- if (is.null(spec$reserve_clusters) || is.na(spec$reserve_clusters)) 0 else spec$reserve_clusters
+    if (r > 0) {
+      add("info", "Reserve clusters", paste0(r, " reserve cluster", if (r != 1) "s", if (is_strat) " per stratum", ", drawn from the clusters not selected",
+                                             if (is_list) "" else paste0(", each with ", spec$n_units, " units and its own buffer"),
+                                             ". Use them in order when a selected cluster cannot be reached"))
+    } else {
+      add("info", "Reserve clusters", "None requested. Add reserve clusters if some selected clusters may be inaccessible")
+    }
   }
 
   list(issues = issues, allocation = allocation, exclusions = exclusions, can_proceed = !any(issues$level == "error"))
@@ -678,7 +984,7 @@ check_frame <- function(data, spec) {
 #'
 #' One row per frame cluster (per stratum for stratified cluster designs): size
 #' measure, selection probability per draw, times selected, and main/reserve
-#' units drawn. Selected clusters are listed first.
+#' units drawn. Selected clusters are listed first, then reserve clusters in order.
 #'
 #' @param data The frame used for the draw
 #' @param sample The sample returned by generate_sample_design()
@@ -687,6 +993,7 @@ check_frame <- function(data, spec) {
 #' @return A data frame
 summarise_clusters <- function(data, sample, spec) {
   data <- as.data.frame(data)
+  if (is_cluster_list(spec)) return(summarise_cluster_list(data, sample, spec))
   strat <- spec$method == "stratified_cluster"
   groups <- if (strat) {
     strata <- as.character(data[[spec$strata_var]])
@@ -702,8 +1009,10 @@ summarise_clusters <- function(data, sample, spec) {
     s <- if (strat) sample[!is.na(sample$stratum) & sample$stratum == h, , drop = FALSE] else sample
     valid <- !is.na(mos$population) & mos$population > 0
     prob <- if (isTRUE(spec$use_pps)) ifelse(valid, mos$population / sum(mos$population[valid]), 0) else rep(1 / nrow(mos), nrow(mos))
-    is_main <- s$sample_type == "Sample"
-    hits <- tapply(s$selection_hits, s$cluster_id, function(v) v[1])
+    count <- function(type) zero_if_na(table(s$cluster_id[s$sample_type == type])[mos$cluster])
+    selected <- is.na(s$cluster_reserve_order)
+    hits <- tapply(s$selection_hits[selected], s$cluster_id[selected], function(v) v[1])
+    reserve_order <- tapply(s$cluster_reserve_order[!selected], s$cluster_id[!selected], function(v) v[1])
 
     out <- data.frame(
       stratum = rep(h, nrow(mos)),
@@ -712,8 +1021,11 @@ summarise_clusters <- function(data, sample, spec) {
       frame_units = mos$frame_units,
       probability_per_draw = round(prob, 6),
       times_selected = zero_if_na(hits[mos$cluster]),
-      sample_count = zero_if_na(table(s$cluster_id[is_main])[mos$cluster]),
-      buffer_count = zero_if_na(table(s$cluster_id[!is_main])[mos$cluster]),
+      sample_count = count("Sample"),
+      buffer_count = count("Buffer"),
+      cluster_reserve_order = as.integer(reserve_order[mos$cluster]),
+      reserve_cluster_units = count("Reserve cluster"),
+      reserve_cluster_buffer = count("Reserve cluster buffer"),
       stringsAsFactors = FALSE
     )
     out$required_sample <- out$times_selected * spec$n_units
@@ -722,7 +1034,50 @@ summarise_clusters <- function(data, sample, spec) {
   })
 
   out <- do.call(rbind, pieces)
-  out <- out[order(out$times_selected == 0, out$stratum, -out$times_selected, out$cluster), ]
+  out <- out[order(out$times_selected == 0, is.na(out$cluster_reserve_order), out$stratum, -out$times_selected,
+                   out$cluster_reserve_order, out$cluster), ]
+  if (!strat) out$stratum <- NULL
+  rownames(out) <- NULL
+  out
+}
+
+#' Summarise a Cluster List After the Draw
+#'
+#' One row per cluster in the list: size, selection probability per draw,
+#' times selected, interviews, and reserve order for reserve clusters.
+#' Selected clusters are listed first, then reserves in the order to use them.
+#'
+#' @inheritParams summarise_clusters
+#'
+#' @return A data frame
+summarise_cluster_list <- function(data, sample, spec) {
+  strat <- spec$method == "stratified_cluster"
+  ids <- cluster_list_ids(data, spec$cluster_var)
+  has_pop <- !is.null(spec$pop_var) && spec$pop_var != ""
+  size <- if (has_pop) suppressWarnings(as.numeric(data[[spec$pop_var]])) else rep(NA_real_, nrow(data))
+  strata <- if (strat) as.character(data[[spec$strata_var]]) else rep("All", nrow(data))
+  keep <- !is.na(ids) & !is_blank(strata)
+
+  out <- data.frame(stratum = strata[keep], cluster = ids[keep], size_measure = size[keep], stringsAsFactors = FALSE)
+  valid <- !is.na(out$size_measure) & out$size_measure > 0
+  out$probability_per_draw <- if (isTRUE(spec$use_pps)) {
+    total <- ave(ifelse(valid, out$size_measure, 0), out$stratum, FUN = sum)
+    round(ifelse(valid, out$size_measure / total, 0), 6)
+  } else {
+    round(1 / ave(rep(1, nrow(out)), out$stratum, FUN = sum), 6)
+  }
+
+  main <- sample[sample$sample_type == "Sample", , drop = FALSE]
+  reserve <- sample[sample$sample_type == "Reserve cluster", , drop = FALSE]
+  at <- match(out$cluster, main$cluster_id)
+  out$times_selected <- ifelse(is.na(at), 0L, main$selection_hits[at])
+  out$interviews <- ifelse(is.na(at), 0L, main$interviews[at])
+  out$cluster_reserve_order <- reserve$cluster_reserve_order[match(out$cluster, reserve$cluster_id)]
+  out$required_sample <- out$times_selected * spec$n_units
+  out$shortfall <- pmax(0L, out$required_sample - out$interviews)
+
+  out <- out[order(out$times_selected == 0, is.na(out$cluster_reserve_order), out$stratum, -out$times_selected,
+                   out$cluster_reserve_order, out$cluster), ]
   if (!strat) out$stratum <- NULL
   rownames(out) <- NULL
   out
@@ -732,7 +1087,7 @@ summarise_clusters <- function(data, sample, spec) {
 #'
 #' @return `data` with clashing columns renamed to <name>_frame
 protect_design_columns <- function(data) {
-  clash <- intersect(names(data), DESIGN_COLUMNS)
+  clash <- intersect(names(data), c(DESIGN_COLUMNS, "interviews"))
   if (length(clash) > 0) {
     names(data)[match(clash, names(data))] <- paste0(clash, "_frame")
     message("Frame column(s) renamed to avoid clashing with design columns: ",
@@ -749,21 +1104,30 @@ protect_design_columns <- function(data) {
 #'   sample_size, buffer_pct, seed, and as needed: sort_var, within ("simple_random"
 #'   or "systematic"), strata_var, allocation ("equal", "proportional", "neyman",
 #'   "manual"), allocation_values (named by stratum), neyman_input ("sd" or
-#'   "proportion"), min_per_stratum, cluster_var, pop_var, n_units, use_pps
+#'   "proportion"), min_per_stratum, cluster_var, pop_var, n_units, use_pps,
+#'   cluster_method ("population_units", or "cluster_list" for one row per cluster),
+#'   reserve_clusters (per stratum for stratified designs)
 #'
 #' @return A list with `sample` (design columns first) and `allocation` (stratified designs)
 generate_sample_design <- function(data, spec) {
   data <- protect_design_columns(as.data.frame(data))
   buffer_pct <- if (is.null(spec$buffer_pct) || is.na(spec$buffer_pct)) 0 else spec$buffer_pct
   allocation <- NULL
+  cluster_list <- is_cluster_list(spec)
+  reserve_clusters <- if (is.null(spec$reserve_clusters) || is.na(spec$reserve_clusters)) 0 else spec$reserve_clusters
 
   s <- switch(spec$method,
     simple_random = simple_random_sampling(data, spec$sample_size, spec$seed,
                                            round(spec$sample_size * buffer_pct / 100)),
     systematic = systematic_sampling(data, spec$sample_size, spec$seed,
                                      round(spec$sample_size * buffer_pct / 100), spec$sort_var),
-    cluster = two_stage_cluster_sampling(data, spec$cluster_var, spec$sample_size, spec$n_units, spec$seed,
-                                         isTRUE(spec$use_pps), spec$pop_var, buffer_pct),
+    cluster = if (cluster_list) {
+      cluster_list_sampling(data, spec$cluster_var, spec$sample_size, spec$n_units, spec$seed,
+                            isTRUE(spec$use_pps), spec$pop_var, reserve_clusters)
+    } else {
+      two_stage_cluster_sampling(data, spec$cluster_var, spec$sample_size, spec$n_units, spec$seed,
+                                 isTRUE(spec$use_pps), spec$pop_var, buffer_pct, reserve_clusters)
+    },
     stratified = ,
     stratified_cluster = {
       if (is.null(spec$strata_var) || !spec$strata_var %in% names(data)) stop("Strata variable not found in data")
@@ -775,13 +1139,14 @@ generate_sample_design <- function(data, spec) {
         sort_by = spec$sort_var,
         cluster_var = if (is_cluster) spec$cluster_var else NULL,
         n_units = spec$n_units, use_pps = isTRUE(spec$use_pps), pop_var = spec$pop_var,
-        buffer_pct = buffer_pct
+        buffer_pct = buffer_pct, cluster_list = cluster_list, reserve_clusters = reserve_clusters
       )
     },
     stop("Unknown sampling method: ", spec$method)
   )
 
   for (col in setdiff(DESIGN_COLUMNS, names(s))) s[[col]] <- NA
-  s <- s[, c(DESIGN_COLUMNS, setdiff(names(s), DESIGN_COLUMNS))]
+  lead <- c(DESIGN_COLUMNS, if (cluster_list) "interviews")
+  s <- s[, c(lead, setdiff(names(s), lead))]
   list(sample = s, allocation = allocation)
 }

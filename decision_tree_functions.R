@@ -482,7 +482,8 @@ decision_handover <- function(d, a) {
   eval_design <- decision_evaluation_design(a)
   clustered <- d %in% c("cluster", "stratified_cluster")
   if (!is.null(eval_design)) {
-    calc <- list(target = "evaluation", design = eval_design, clustered = clustered, m = 10, icc = 0.06)
+    calc <- list(target = "evaluation", design = eval_design, clustered = clustered, m = 10, icc = 0.06,
+                 rho = if (eval_design %in% c("panel", "did_panel")) 0.3 else NULL)
   } else if (!is.na(des$calculator)) {
     method <- switch(d, srs_list = "simple_random", site_census = "stratified", mixed_mode = "simple_random",
                      phone_list = if (a$stratify) "stratified" else "simple_random",

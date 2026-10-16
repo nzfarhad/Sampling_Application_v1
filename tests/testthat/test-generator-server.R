@@ -28,7 +28,7 @@ base_inputs <- function(session) {
                     systematic_sort_variable = "", strata_variable = "", within_method = "simple_random",
                     allocation_method = "proportional", min_per_stratum = 0, neyman_input = "proportion",
                     cluster_sampling_method = "population_units", cluster_variable = "", cluster_size = 10,
-                    use_pps = TRUE)
+                    use_pps = TRUE, reserve_clusters = 0)
 }
 
 test_that("generator: systematic draw keeps NA rows, labels buffer, records methodology", {
@@ -120,5 +120,149 @@ test_that("generator: frame errors block the draw", {
                       random_seed = 1, generate_sample = 1)
     expect_false(frame_check_result()$can_proceed)
     expect_null(generated_sample())
+  })
+})
+
+# A cluster list: one row per village with its number of households
+cluster_list_csv <- function() {
+  set.seed(4)
+  d <- data.frame(
+    province = rep(c("A", "B", "C"), c(40, 30, 20)),
+    village = sprintf("V%02d", 1:90),
+    households = sample(3:40, 90, replace = TRUE)
+  )
+  d$village[c(5, 60)] <- "Same name"
+  path <- tempfile(fileext = ".csv")
+  write.csv(d, path, row.names = FALSE)
+  list(name = "clusters.csv", datapath = path, size = file.size(path), type = "text/csv")
+}
+
+list_inputs <- function(session, ...) {
+  base_inputs(session)
+  session$setInputs(dataset_file = cluster_list_csv())
+  session$setInputs(cluster_sampling_method = "cluster_list", cluster_list_variable = "village",
+                    cluster_population_variable = "households", cluster_list_size = 5, use_pps_cluster_list = TRUE,
+                    id_variable = "", ...)
+}
+
+test_that("generator: cluster list gives one row per selected cluster with its interviews", {
+  testServer(sampling_generator_server, {
+    list_inputs(session, sampling_method = "cluster", sample_size = 100, random_seed = 9, reserve_clusters = 2)
+    session$setInputs(generate_sample = 1)
+    issues <- frame_check_result()$issues
+    expect_true(any(grepl("Same name [(]row 5[)]", issues$detail)))
+    session$setInputs(confirm_draw = 1)
+    s <- generated_sample()
+    main <- s$sample_type == "Sample"
+    expect_false(any(duplicated(s$cluster_id)))
+    expect_equal(sum(s$selection_hits[main]), 20)
+    expect_true(all(s$interviews[main] == pmin(5 * s$selection_hits[main], s$households[main])))
+    expect_equal(sum(!main), 2)
+    # Weights per interview add up to the households in the list
+    expect_equal(sum(s$base_weight[main] * s$interviews[main]), sum(read.csv(cluster_list_csv()$datapath)$households))
+    cs <- cluster_summary()
+    expect_equal(nrow(cs), 90)
+    expect_equal(sum(cs$interviews), sum(s$interviews[main]))
+    m <- methodology()
+    expect_equal(m$Value[m$Item == "Main sample drawn"], as.character(sum(s$interviews[main])))
+    expect_equal(m$Value[m$Item == "Clusters selected"], as.character(sum(main)))
+    path <- output$download_sample_excel
+    guide <- openxlsx::read.xlsx(path, "Column Guide")
+    expect_true("interviews" %in% guide$Column)
+  })
+})
+
+test_that("generator: cluster list without sizes needs equal probability", {
+  testServer(sampling_generator_server, {
+    list_inputs(session, sampling_method = "cluster", sample_size = 50, random_seed = 2)
+    session$setInputs(cluster_population_variable = "", generate_sample = 1)
+    expect_null(frame_check_result())
+    session$setInputs(use_pps_cluster_list = FALSE, generate_sample = 2)
+    session$setInputs(confirm_draw = 1)
+    s <- generated_sample()
+    expect_equal(sum(s$sample_type == "Sample"), 10)
+    expect_true(all(is.na(s$base_weight)))
+    expect_true(all(s$interviews[s$sample_type == "Sample"] == 5))
+  })
+})
+
+test_that("generator: stratified cluster list allocates by the households in each stratum", {
+  testServer(sampling_generator_server, {
+    list_inputs(session, sampling_method = "stratified_cluster", sample_size = 120, random_seed = 3,
+                strata_variable = "province")
+    preview <- allocation_preview()
+    expect_equal(preview$labels[2:3], c("Clusters", "Total size"))
+    expect_equal(preview$table$frame_units, c(40L, 30L, 20L))
+    hh <- read.csv(cluster_list_csv()$datapath)
+    expect_equal(preview$table$n_allocated, allocate_sample(as.numeric(tapply(hh$households, hh$province, sum)), 120))
+    session$setInputs(generate_sample = 1)
+    session$setInputs(confirm_draw = 1)
+    s <- generated_sample()
+    main <- s$sample_type == "Sample"
+    expect_equal(as.vector(tapply(s$selection_hits[main], s$stratum[main], sum)), preview$table$clusters_to_select)
+    expect_true(all(s$province == s$stratum))
+  })
+})
+
+test_that("generator: Method 1 draws reserve clusters when asked", {
+  testServer(sampling_generator_server, {
+    base_inputs(session)
+    session$setInputs(sampling_method = "cluster", sample_size = 50, random_seed = 7, buffer_percentage = 20,
+                      cluster_variable = "village", cluster_size = 5, reserve_clusters = 2, generate_sample = 1)
+    expect_true(any(grepl("2 reserve clusters", frame_check_result()$issues$detail)))
+    session$setInputs(confirm_draw = 1)
+    s <- generated_sample()
+    expect_equal(sum(s$sample_type == "Sample"), 50)
+    res <- s[!is.na(s$cluster_reserve_order), ]
+    expect_equal(length(unique(res$cluster_id)), 2)
+    expect_true(all(res$sample_type %in% c("Reserve cluster", "Reserve cluster buffer")))
+    m <- methodology()
+    expect_equal(m$Value[m$Item == "Reserve clusters drawn"], "2")
+    expect_equal(m$Value[m$Item == "Units drawn in reserve clusters"], as.character(nrow(res)))
+    expect_equal(sum(cluster_summary()$reserve_cluster_units), sum(res$sample_type == "Reserve cluster"))
+
+    # A negative or fractional number is refused
+    session$setInputs(reserve_clusters = 1.5, generate_sample = 2)
+    expect_equal(pending_spec()$reserve_clusters, 2)
+  })
+})
+
+test_that("draw messages: repeats across strata become one line, long lists go to the details", {
+  msgs <- c(
+    "Stratum A: 2 selected cluster(s) had fewer units than required; all their units were taken: V1 (needs 5, has 3); V2 (needs 5, has 1); V3 (needs 5, has 2); V4 (needs 5, has 2)",
+    "Stratum B: 3 selected cluster(s) had fewer units than required; all their units were taken: V7 (needs 5, has 3); V8 (needs 5, has 1); V9 (needs 5, has 2); V10 (needs 5, has 4)",
+    "Main sample has 95 units (requested 100).",
+    "4 cluster(s) did not have enough remaining units for the full set of reserves: Village one, Village two, Village three, Village four, Village five, Village six, Village seven, Village eight",
+    "Main sample has 95 units (requested 100)."
+  )
+  g <- group_draw_messages(msgs)
+  expect_equal(nrow(g), 3)
+  expect_equal(g$summary[1], "5 selected cluster(s) had fewer units than required; all their units were taken (in 2 strata)")
+  expect_length(g$details[[1]], 2)
+  expect_match(g$details[[1]][2], "^Stratum B: V7")
+  expect_equal(g$summary[2], "Main sample has 95 units (requested 100).")
+  expect_length(g$details[[2]], 0)
+  expect_equal(g$details[[3]][1:2], c("Village one", "Village two"))
+  # A note that ends in a sentence is not a list
+  note <- "Cluster list: each row is one cluster. The sample lists the selected clusters and the interviews to do in each; select the units within each cluster in the field (e.g. from a household listing)."
+  expect_equal(group_draw_messages(note)$summary, note)
+  expect_equal(nrow(group_draw_messages(character(0))), 0)
+})
+
+test_that("generator: warnings are shown in one grouped box under the results", {
+  testServer(sampling_generator_server, {
+    list_inputs(session, sampling_method = "stratified_cluster", sample_size = 300, random_seed = 3,
+                strata_variable = "province")
+    session$setInputs(cluster_list_size = 30)
+    session$setInputs(generate_sample = 1)
+    session$setInputs(confirm_draw = 1)
+    m <- draw_messages()
+    expect_gt(length(m$warnings), 1)
+    html <- paste(as.character(output$draw_messages), collapse = "")
+    expect_match(html, "warning[s]? from the draw")
+    expect_match(html, "[(]in [0-9]+ strata[)]")
+    # The per-design note appears once, without a stratum
+    expect_equal(sum(grepl("Cluster list:", m$notes)), 1)
+    expect_false(any(grepl("^Stratum .*Cluster list", m$notes)))
   })
 })

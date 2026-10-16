@@ -10,7 +10,7 @@ ATR Sampling Tool: an R Shiny app (version in `VERSION`) for a third-party monit
 
 - `app.R`: loads packages, then sources `sampling_generation_functions.R`, `sample_size_functions.R` and `decision_tree_functions.R` before the modules, and defines the navbar.
 - `sampling_generation_functions.R`: the sample selection engine, allocation, frame checks and weights. No Shiny code.
-- `sample_size_functions.R`: monitoring (precision) and evaluation (power/MDE) formulas. No Shiny code.
+- `sample_size_functions.R`: monitoring (precision) and evaluation (power/MDE) formulas. No Shiny code. Evaluation scenarios are plain lists; `evaluation_run()` sizes each key indicator and keeps the largest, then adds the indicator, subgroup and analysis-comparison tables, warnings, steps and the methods text (`evaluation_report_text()`). Add new optional scenario fields with `eval_opt()` defaults, so older calls keep working.
 - `decision_tree_functions.R`: decision tree questions, designs (`DESIGNS`) and rules (`DESIGN_RULES`, first match wins). No Shiny code. The module hands settings to other tabs through the `apply_handover()` function each receiving module returns, wired in `app.R`.
 - `modules/`: one file per tab. `wiki_module.R` is a generic knowledge-base page used by both the Sampling Guideline (`wiki_content/`) and How to Use (`guide_content/`).
 - `www/styles.css`: the app's own styles, linked from `wiki_module.R`. Brand colours are set in `bs_theme()` in `app.R` (primary `#730202`). Decision tree questions use the `.dt-q` block style, so each question stands out from its options; questions are not numbered.
@@ -41,8 +41,10 @@ ATR Sampling Tool: an R Shiny app (version in `VERSION`) for a third-party monit
 - UI check with Playwright, which uses the installed Microsoft Edge:
   1. Start the app with `shiny::runApp(port = 8787, launch.browser = FALSE)` in the background. Restart it after changing R code; CSS changes only need a page reload.
   2. Run `npm --prefix tests/playwright run check`.
+     PDF downloads are checked by fetching the link inside the page; a real browser download leaves a tab that crashes `context.close()`.
   3. Look at the screenshots in `tests/playwright/screenshots/`.
 - Known values:
   - SRS default (N 10,000, p 0.5, 95%, e 5%, 5% non-response) = 390.
   - Evaluation regression case (D 0.10, p1 0.15, power 0.8, α 0.05, response rate 0.8, ICC 0.1, m 6) = 310 → DEFF 1.5 → 78 clusters → 468 per group.
+  - Evaluation Calculator defaults in the browser: 660 per group; mean (40, SD 12, change 3) = 430; the two default indicators = 810, set by the proportion.
 - plotly 4.10.4 with ggplot2 4.x breaks `ggplotly()`, so draw charts with native `plot_ly()`.

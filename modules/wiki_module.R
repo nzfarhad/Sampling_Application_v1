@@ -24,6 +24,8 @@ WIKI_ARTICLES <- list(
                  category = "methods", description = "Sampling groups of units together"),
   systematic = list(title = "Systematic Sampling", content = "systematic_sampling.md",
                     category = "methods", description = "Selecting every kth unit from a population"),
+  evaluation_sample_size = list(title = "Evaluation Sample Sizes", content = "evaluation_sample_size.md",
+                                category = "methods", description = "Means, ANCOVA, choosing the SD and rho, indicators, subgroups and field adjustments"),
   quality_control = list(title = "Quality Control in Sampling", content = "quality_control.md",
                          category = "best_practices", description = "Ensuring sampling quality and validity"),
   site_verification = list(title = "Site and Sub-Project Verification", content = "site_verification_sampling.md",

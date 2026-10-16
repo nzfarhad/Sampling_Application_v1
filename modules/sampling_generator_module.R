@@ -113,6 +113,22 @@ sampling_generator_ui <- function(id) {
           margin-top: 15px;
         }
         
+        .draw-messages ul {
+          padding-left: 1.2rem;
+        }
+
+        .draw-messages details summary {
+          cursor: pointer;
+          font-size: 0.85rem;
+        }
+
+        .draw-messages details ul {
+          max-height: 220px;
+          overflow-y: auto;
+          font-size: 0.85rem;
+          margin-top: 4px;
+        }
+
         .variable-names-modal .modal-dialog {
           max-width: 600px;
         }
@@ -387,7 +403,7 @@ sampling_generator_ui <- function(id) {
                     )
                   ),
                   p(id = ns("allocation_help"), class = "text-muted small mb-2",
-                    "Allocation preview. For Neyman or manual allocation, double-click a cell in the Input column to edit it."),
+                    "Allocation preview. For Neyman or manual allocation, double-click a cell in the Input column, type the value, then click outside the cell or press Tab to save it."),
                   DT::dataTableOutput(ns("allocation_table"))
                 ),
                 
@@ -436,6 +452,27 @@ sampling_generator_ui <- function(id) {
                         inline = TRUE
                       ),
                       p("Choose the approach for 2-stage cluster sampling", class = "text-muted small")
+                    )
+                  ),
+                  div(
+                    class = "row mb-2",
+                    div(
+                      class = "col-md-6",
+                      numericInput(
+                        ns("reserve_clusters"),
+                        "Reserve Clusters",
+                        value = 0,
+                        min = 0,
+                        step = 1,
+                        width = "100%"
+                      ),
+                      p("Extra clusters, used in order when a selected cluster cannot be reached (e.g. insecure). Per stratum for stratified designs.", class = "text-muted small")
+                    ),
+                    div(
+                      class = "col-md-6",
+                      p(id = ns("reserve_clusters_note"), class = "text-muted small mt-md-4",
+                        "Reserve clusters are drawn from the clusters not selected, by the same method (PPS or equal probability). ",
+                        "With Method 1 each gets the same interviews per cluster and buffer as a selected cluster.")
                     )
                   ),
                   
@@ -496,17 +533,17 @@ sampling_generator_ui <- function(id) {
                           choices = c("Select a variable..." = ""),
                           width = "100%"
                         ),
-                        p("Variable containing cluster identifiers", class = "text-muted small")
+                        p("Each row of the file is one cluster (e.g. a village). A name that repeats on another row gets its row number added.", class = "text-muted small")
                       ),
                       div(
                         class = "col-md-6",
                         selectInput(
                           ns("cluster_population_variable"),
                           "Cluster Population Variable",
-                          choices = c("Select a variable..." = ""),
+                          choices = c("None (equal probability only)" = ""),
                           width = "100%"
                         ),
-                        p("Population size of each cluster. If the value repeats on every row of a cluster it is used once; if it varies, it is summed.", class = "text-muted small")
+                        p("Size of each cluster in the units you interview (e.g. households). Needed for PPS and for the weights.", class = "text-muted small")
                       )
                     ),
                     div(
@@ -521,7 +558,7 @@ sampling_generator_ui <- function(id) {
                           step = 1,
                           width = "100%"
                         ),
-                        p("Number of units to sample from each selected cluster", class = "text-muted small")
+                        p("Interviews in each selected cluster. The sample lists the clusters; units are chosen in the field, e.g. from a household listing.", class = "text-muted small")
                       ),
                       div(
                         class = "col-md-6",
@@ -632,6 +669,9 @@ sampling_generator_ui <- function(id) {
                   )
                 ),
                 
+                # Warnings and notes from the draw
+                uiOutput(ns("draw_messages")),
+
                 # Download Options
                 div(
                   class = "row mb-4",
@@ -689,8 +729,9 @@ SAMPLING_METHOD_LABELS <- c(
 DESIGN_COLUMN_NOTES <- data.frame(
   Column = DESIGN_COLUMNS,
   Meaning = c(
-    "Sample = main sample; Buffer = reserve unit",
+    "Sample = main sample; Buffer = reserve unit; Reserve cluster = unit to interview in a reserve cluster; Reserve cluster buffer = reserve unit in a reserve cluster",
     "Order in which reserves are used (within the cluster for cluster designs, within the stratum for stratified designs)",
+    "Reserve clusters (cluster designs): 1, 2, 3 ... in the order to use them when a selected cluster cannot be reached (per stratum for stratified designs); blank for selected clusters",
     "Stratum (stratified designs)",
     "Cluster (cluster designs)",
     "Times the cluster was selected (PPS with replacement can select a cluster more than once)",
@@ -702,7 +743,77 @@ DESIGN_COLUMN_NOTES <- data.frame(
   stringsAsFactors = FALSE
 )
 
-REPLACEMENT_REASONS <- c("Insecure / inaccessible", "Refused", "Not found / moved", "Other")
+# From a cluster list, each sample row is a cluster
+CLUSTER_LIST_COLUMN_NOTES <- local({
+  notes <- DESIGN_COLUMN_NOTES
+  set <- function(column, meaning) notes$Meaning[notes$Column == column] <<- meaning
+  set("sample_type", "Sample = selected cluster; Reserve cluster = reserve cluster")
+  set("reserve_order", "Not used: units are chosen in the field")
+  set("p_stage2", "interviews / (selection_hits x cluster size): the chance a unit is interviewed, per selection of its cluster")
+  set("base_weight", "1 / p_incl, the weight of each interview in the cluster. Adjust for non-response before analysis.")
+  rbind(notes, data.frame(
+    Column = "interviews",
+    Meaning = "Interviews to do in the cluster: m per selection, or every unit when the cluster is smaller. Select them in the field, e.g. from a household listing."
+  ))
+})
+
+#' Group Draw Warnings or Notes for Display
+#'
+#' The same message repeated in several strata ("Stratum X: 3 cluster(s) ...")
+#' becomes one line with the counts added up, and long lists of clusters move
+#' to the details, one line per stratum or per item.
+#'
+#' @param msgs Character vector of messages
+#'
+#' @return A data frame with `summary` and a list column `details`
+group_draw_messages <- function(msgs) {
+  msgs <- unique(trimws(msgs[!is.na(msgs) & nzchar(trimws(msgs))]))
+  out <- data.frame(summary = character(0), stringsAsFactors = FALSE)
+  out$details <- list()
+  if (length(msgs) == 0) return(out)
+
+  has_stratum <- grepl("^Stratum [^:]+: ", msgs)
+  stratum <- ifelse(has_stratum, sub("^Stratum ([^:]+): .*$", "\\1", msgs), NA_character_)
+  body <- sub("^Stratum [^:]+: ", "", msgs)
+  # A list after the first colon (not a sentence) is set apart from the message,
+  # so the same message with different clusters groups together
+  pos <- regexpr(": ", body, fixed = TRUE)
+  tail <- ifelse(pos > 0, substring(body, pos + 2), "")
+  is_list <- nzchar(tail) & !grepl("[[:alpha:])][.]$", tail)
+  head <- ifelse(is_list, substr(body, 1, pos - 1), body)
+  tail[!is_list] <- ""
+  key <- gsub("[0-9]+", "#", head)
+
+  split_items <- function(x) {
+    if (grepl("; ", x, fixed = TRUE)) strsplit(x, "; ", fixed = TRUE)[[1]]
+    else if (!grepl("(", x, fixed = TRUE)) strsplit(x, ", ", fixed = TRUE)[[1]]
+    else x
+  }
+
+  for (k in unique(key)) {
+    i <- which(key == k)
+    if (length(i) == 1) {
+      # A short list stays in the message; a long one goes to the details
+      short <- nchar(tail[i]) <= 60
+      summary <- paste0(if (has_stratum[i]) paste0("Stratum ", stratum[i], ": "), head[i],
+                        if (nzchar(tail[i]) && short) paste0(": ", tail[i]))
+      details <- if (nzchar(tail[i]) && !short) split_items(tail[i]) else character(0)
+    } else {
+      summary <- head[i[1]]
+      if (all(grepl("^[0-9]+ ", head[i]))) {
+        summary <- sub("^[0-9]+", sum(as.numeric(sub("^([0-9]+) .*$", "\\1", head[i]))), summary)
+      }
+      strata <- sum(has_stratum[i])
+      if (strata > 0) summary <- paste0(summary, " (in ", strata, " strata)")
+      details <- paste0(ifelse(has_stratum[i], paste0("Stratum ", stratum[i], ": "), ""), ifelse(nzchar(tail[i]), tail[i], head[i]))
+    }
+    out[nrow(out) + 1, "summary"] <- summary
+    out$details[[nrow(out)]] <- details
+  }
+  out
+}
+
+REPLACEMENT_REASONS <-c("Insecure / inaccessible", "Refused", "Not found / moved", "Other")
 
 # App version from the VERSION file, plus the git commit when available and
 # commit = TRUE (used in exports; the footer shows the version only)
@@ -778,6 +889,35 @@ sampling_generator_server <- function(id, study_name = NULL) {
     frame_check_result <- reactiveVal(NULL)
     pending_spec <- reactiveVal(NULL)
     allocation_inputs <- reactiveVal(NULL)
+    draw_messages <- reactiveVal(NULL)
+
+    # Warnings and notes from the last draw, grouped, in one box
+    output$draw_messages <- renderUI({
+      m <- draw_messages()
+      req(m)
+      block <- function(msgs, class, title) {
+        g <- group_draw_messages(msgs)
+        if (nrow(g) == 0) return(NULL)
+        div(
+          class = paste("alert draw-messages", class),
+          tags$strong(title(nrow(g))),
+          tags$ul(class = "mb-0 mt-1", lapply(seq_len(nrow(g)), function(i) {
+            details <- g$details[[i]]
+            tags$li(
+              g$summary[i],
+              if (length(details)) tags$details(
+                tags$summary(paste0("Show ", length(details), if (length(details) == 1) " detail" else " details")),
+                tags$ul(lapply(details, tags$li))
+              )
+            )
+          }))
+        )
+      }
+      tagList(
+        block(m$warnings, "alert-warning", function(n) paste0(n, " warning", if (n != 1) "s", " from the draw")),
+        block(m$notes, "alert-secondary", function(n) if (n == 1) "Note" else "Notes")
+      )
+    })
 
     # Study Name synchronization with the other tabs
     if (!is.null(study_name)) {
@@ -871,6 +1011,7 @@ sampling_generator_server <- function(id, study_name = NULL) {
         uploaded_data(data)
         generated_sample(NULL)
         cluster_summary(NULL)
+        draw_messages(NULL)
         shinyjs::hide("results_section")
 
         shinyjs::runjs(paste0('
@@ -884,10 +1025,8 @@ sampling_generator_server <- function(id, study_name = NULL) {
         updateSelectInput(session, "strata_variable", choices = c("Select a variable..." = "", vars))
         updateSelectInput(session, "cluster_variable", choices = c("Select a variable..." = "", vars))
         updateSelectInput(session, "cluster_list_variable", choices = c("Select a variable..." = "", vars))
-        updateSelectInput(session, "cluster_population_variable", choices = c("Select a variable..." = "", vars))
+        updateSelectInput(session, "cluster_population_variable", choices = c("None (equal probability only)" = "", vars))
         updateSelectInput(session, "systematic_sort_variable", choices = c("Keep file order" = "", vars))
-
-        updateNumericInput(session, "sample_size", max = nrow(data))
 
         showNotification("Dataset uploaded successfully!", type = "message")
 
@@ -917,6 +1056,13 @@ sampling_generator_server <- function(id, study_name = NULL) {
       shinyjs::toggle("cluster_list_method", condition = input$cluster_sampling_method == "cluster_list")
     })
 
+    # From a cluster list there is no unit buffer: reserves are whole clusters
+    observe({
+      list_mode <- input$sampling_method %in% c("cluster", "stratified_cluster") &&
+        identical(input$cluster_sampling_method, "cluster_list")
+      shinyjs::toggleState("buffer_percentage", condition = !list_mode)
+    })
+
     # Per-stratum allocation inputs (Neyman values or manual sizes), reset when the strata change
     observeEvent(list(uploaded_data(), input$strata_variable), {
       data <- uploaded_data()
@@ -933,8 +1079,8 @@ sampling_generator_server <- function(id, study_name = NULL) {
       edit <- input$allocation_table_cell_edit
       current <- allocation_inputs()
       req(current, input$allocation_method %in% c("neyman", "manual"))
-      # Column index is 0-based without row names; the Input column is the third
-      if (edit$col == 2) {
+      # Column index is 0-based without row names
+      if (edit$col == allocation_preview()$input_col) {
         current$input[edit$row] <- suppressWarnings(as.numeric(edit$value))
         allocation_inputs(current)
       }
@@ -980,11 +1126,14 @@ sampling_generator_server <- function(id, study_name = NULL) {
           spec$use_pps <- isTRUE(input$use_pps)
         } else {
           spec$cluster_var <- input$cluster_list_variable
-          spec$pop_var <- input$cluster_population_variable
+          spec$pop_var <- if (isTRUE(nzchar(input$cluster_population_variable))) input$cluster_population_variable else NULL
           spec$n_units <- input$cluster_list_size
           spec$use_pps <- isTRUE(input$use_pps_cluster_list)
         }
         spec$cluster_method <- input$cluster_sampling_method
+        spec$reserve_clusters <- if (is.null(input$reserve_clusters) || is.na(input$reserve_clusters)) 0 else input$reserve_clusters
+        # From a cluster list, units are chosen in the field, so there is no unit buffer
+        if (spec$cluster_method == "cluster_list") spec$buffer_pct <- 0
       }
       spec
     }
@@ -999,11 +1148,14 @@ sampling_generator_server <- function(id, study_name = NULL) {
       }
       if (spec$method %in% c("cluster", "stratified_cluster")) {
         if (is.null(spec$cluster_var) || spec$cluster_var == "") return("Please select a cluster variable!")
-        if (spec$cluster_method == "cluster_list" && (is.null(spec$pop_var) || spec$pop_var == "")) {
-          return("Please select both cluster list and population variables!")
+        if (spec$cluster_method == "cluster_list" && isTRUE(spec$use_pps) && is.null(spec$pop_var)) {
+          return("PPS needs the cluster population variable. Select it, or untick PPS to select clusters with equal probability.")
         }
         if (is.null(spec$n_units) || is.na(spec$n_units) || spec$n_units <= 0) {
           return("Interviews per cluster must be a positive number!")
+        }
+        if (spec$reserve_clusters < 0 || spec$reserve_clusters != round(spec$reserve_clusters)) {
+          return("Reserve clusters must be a whole number, 0 or more.")
         }
       }
       NULL
@@ -1023,29 +1175,47 @@ sampling_generator_server <- function(id, study_name = NULL) {
         min_per_stratum = if (is.na(input$min_per_stratum)) 0 else input$min_per_stratum,
         neyman_input = input$neyman_input,
         n_units = if (input$cluster_sampling_method == "population_units") input$cluster_size else input$cluster_list_size,
-        cluster_var = if (input$cluster_sampling_method == "population_units") input$cluster_variable else input$cluster_list_variable
+        cluster_var = if (input$cluster_sampling_method == "population_units") input$cluster_variable else input$cluster_list_variable,
+        cluster_method = input$cluster_sampling_method,
+        pop_var = if (input$cluster_sampling_method == "cluster_list" && isTRUE(nzchar(input$cluster_population_variable))) input$cluster_population_variable
       )
       inputs <- allocation_inputs()
       if (!is.null(inputs)) spec$allocation_values <- setNames(inputs$input, inputs$stratum)
+      if (spec$method == "stratified_cluster" && (is.null(spec$cluster_var) || spec$cluster_var == "")) {
+        spec$method <- "stratified"
+      }
 
+      # From a cluster list, strata are counted in clusters and their total size
+      list_mode <- is_cluster_list(spec)
       strata <- as.character(data[[spec$strata_var]])
       counts <- table(strata[!is_blank(strata)])
       preview <- data.frame(stratum = names(counts), frame_units = as.integer(counts), stringsAsFactors = FALSE)
+      labels <- c("Stratum", if (list_mode) "Clusters" else "Frame units")
+      if (list_mode && !is.null(spec$pop_var)) {
+        size <- suppressWarnings(as.numeric(data[[spec$pop_var]]))
+        size[is.na(size) | size < 0] <- 0
+        preview$frame_population <- as.numeric(tapply(size[!is_blank(strata)], strata[!is_blank(strata)], sum)[preview$stratum])
+        labels <- c(labels, "Total size")
+      }
+      input_col <- ncol(preview)
       preview$input <- if (!is.null(inputs)) inputs$input[match(preview$stratum, inputs$stratum)] else NA_real_
+      labels <- c(labels, "Input", if (list_mode) "Allocated interviews" else "Allocated n", "Sampling fraction (%)",
+                  if (list_mode) "Clusters to select")
 
       result <- tryCatch({
-        if (spec$method == "stratified_cluster" && (is.null(spec$cluster_var) || spec$cluster_var == "")) {
-          spec$method <- "stratified"
-        }
         alloc <- compute_allocation(data, spec)
-        preview$n_allocated <- alloc$n_allocated[match(preview$stratum, alloc$stratum)]
-        preview$sampling_fraction_pct <- alloc$sampling_fraction_pct[match(preview$stratum, alloc$stratum)]
-        list(table = preview, message = NULL)
+        at <- match(preview$stratum, alloc$stratum)
+        preview$n_allocated <- alloc$n_allocated[at]
+        preview$sampling_fraction_pct <- if (is.null(alloc$sampling_fraction_pct)) NA_real_ else alloc$sampling_fraction_pct[at]
+        if (list_mode) preview$clusters_to_select <- alloc$clusters_to_select[at]
+        NULL
       }, error = function(e) {
-        preview$n_allocated <- NA_integer_
-        list(table = preview, message = conditionMessage(e))
+        preview$n_allocated <<- NA_integer_
+        preview$sampling_fraction_pct <<- NA_real_
+        if (list_mode) preview$clusters_to_select <<- NA_integer_
+        conditionMessage(e)
       })
-      result
+      list(table = preview, labels = labels, input_col = input_col, message = result)
     })
 
     output$allocation_table <- DT::renderDataTable({
@@ -1056,14 +1226,16 @@ sampling_generator_server <- function(id, study_name = NULL) {
         manual = "Input: sample size",
         "Input (not used)"
       )
+      labels <- preview$labels
+      labels[labels == "Input"] <- input_label
       DT::datatable(
         preview$table,
-        colnames = c("Stratum", "Frame units", input_label, "Allocated n", "Sampling fraction (%)")[seq_len(ncol(preview$table))],
+        colnames = labels,
         rownames = FALSE,
         selection = "none",
-        editable = if (editable_input) list(target = "cell", disable = list(columns = c(0, 1, 3, 4))) else FALSE,
+        editable = if (editable_input) list(target = "cell", disable = list(columns = setdiff(seq_along(labels) - 1, preview$input_col))) else FALSE,
         caption = if (!is.null(preview$message)) htmltools::tags$caption(style = "color:#b00020;", preview$message),
-        options = list(dom = "t", paging = FALSE, ordering = FALSE)
+        options = list(dom = "t", paging = FALSE, ordering = FALSE, scrollX = TRUE)
       )
     })
 
@@ -1161,9 +1333,31 @@ sampling_generator_server <- function(id, study_name = NULL) {
         generated_sample(sample_data)
         allocation_result(result$allocation)
 
-        main_count <- sum(sample_data$sample_type == "Sample")
+        is_main <- sample_data$sample_type == "Sample"
+        main_count <- sum(is_main)
         buffer_count <- sum(sample_data$sample_type == "Buffer")
+        reserve_cluster_count <- length(unique(paste(sample_data$stratum, sample_data$cluster_id)[!is.na(sample_data$cluster_reserve_order)]))
+        reserve_text <- if (reserve_cluster_count > 0) paste0(reserve_cluster_count, " reserve cluster", if (reserve_cluster_count != 1) "s") else ""
         is_cluster <- spec$method %in% c("cluster", "stratified_cluster")
+        # From a cluster list each row is a cluster: count interviews, and the
+        # population is the clusters' total size
+        cluster_list <- is_cluster_list(spec)
+        population_text <- format(nrow(data), big.mark = ",")
+        if (cluster_list) {
+          main_count <- sum(sample_data$interviews[is_main])
+          named <- !is.na(cluster_list_ids(data, spec$cluster_var))
+          size <- if (!is.null(spec$pop_var)) suppressWarnings(as.numeric(data[[spec$pop_var]])) else rep(NA_real_, nrow(data))
+          total <- sum(size[named & size > 0], na.rm = TRUE)
+          population_text <- if (total > 0) format(round(total), big.mark = ",") else paste(format(sum(named), big.mark = ","), "clusters")
+          fraction_text <- if (total > 0) paste0(round(main_count / total * 100, 2), "%") else "-"
+          buffer_text <- if (nzchar(reserve_text)) reserve_text else "0 reserve clusters"
+          sample_text <- paste0(main_count, " (", sum(is_main), " clusters)")
+        } else {
+          fraction_text <- paste0(round(main_count / nrow(data) * 100, 2), "%")
+          buffer_text <- paste0(buffer_count, " (", round(buffer_count / main_count * 100, 1), "%)",
+                                if (nzchar(reserve_text)) paste0(" + ", reserve_text))
+          sample_text <- as.character(main_count)
+        }
 
         if (is_cluster) {
           cluster_summary(summarise_clusters(data, sample_data, spec))
@@ -1173,36 +1367,37 @@ sampling_generator_server <- function(id, study_name = NULL) {
           shinyjs::hide("cluster_summary_section")
         }
 
+        expected <- if (!is.null(result$allocation)) sum(result$allocation$n_allocated) else spec$sample_size
+        if (main_count != expected) {
+          sampling_warnings <- c(
+            paste0("Main sample has ", main_count, if (cluster_list) " interviews" else " units", " (requested ", expected, ")",
+                   if (is_cluster) ". Cluster samples are whole multiples of the interviews per cluster, and small clusters can fall short." else "."),
+            sampling_warnings
+          )
+        }
+        draw_messages(list(notes = sampling_notes, warnings = sampling_warnings))
+
         methodology(build_methodology(spec, data, sample_data, frame_check_result(), sampling_notes, sampling_warnings))
 
         shinyjs::show("results_section")
 
         shinyjs::runjs(paste0('
           document.getElementById("', session$ns("results_header"), '").textContent = "Sample Results - ', SAMPLING_METHOD_LABELS[[spec$method]], '";
-          document.getElementById("', session$ns("sample_size_result"), '").textContent = "', main_count, '";
-          document.getElementById("', session$ns("population_size_result"), '").textContent = "', nrow(data), '";
-          document.getElementById("', session$ns("sampling_fraction_result"), '").textContent = "', round(main_count / nrow(data) * 100, 2), '%";
+          document.getElementById("', session$ns("sample_size_result"), '").textContent = "', sample_text, '";
+          document.getElementById("', session$ns("population_size_result"), '").textContent = "', population_text, '";
+          document.getElementById("', session$ns("sampling_fraction_result"), '").textContent = "', fraction_text, '";
           document.getElementById("', session$ns("seed_result"), '").textContent = "', spec$seed, '";
-          document.getElementById("', session$ns("buffer_result"), '").textContent = "', buffer_count, ' (', round(buffer_count / main_count * 100, 1), '%)";
+          document.getElementById("', session$ns("buffer_result"), '").textContent = "', buffer_text, '";
         '))
 
-        for (note in sampling_notes) {
-          showNotification(note, type = "message", duration = 10)
+        # One short notice; the details are in the box under the result cards
+        n_warn <- nrow(group_draw_messages(sampling_warnings))
+        if (n_warn > 0) {
+          showNotification(paste0("Sample generated with ", n_warn, " warning", if (n_warn != 1) "s",
+                                  ". See the box under the results."), type = "warning", duration = 8)
+        } else {
+          showNotification("Sample generated successfully!", type = "message")
         }
-        for (w in sampling_warnings) {
-          showNotification(w, type = "warning", duration = NULL)
-        }
-
-        expected <- if (!is.null(result$allocation)) sum(result$allocation$n_allocated) else spec$sample_size
-        if (main_count != expected) {
-          showNotification(
-            paste0("Main sample has ", main_count, " units (requested ", expected, ")",
-                   if (is_cluster) ". Cluster samples are whole multiples of the interviews per cluster, and small clusters can fall short." else "."),
-            type = "warning", duration = NULL
-          )
-        }
-
-        showNotification("Sample generated successfully!", type = "message")
 
       }, error = function(e) {
         showNotification(paste("Error generating sample:", e$message), type = "error", duration = NULL)
@@ -1215,10 +1410,15 @@ sampling_generator_server <- function(id, study_name = NULL) {
       main <- sample_data$sample_type == "Sample"
       is_strat <- spec$method %in% c("stratified", "stratified_cluster")
       is_cluster <- spec$method %in% c("cluster", "stratified_cluster")
+      cluster_list <- is_cluster_list(spec)
+      # From a cluster list each row is a cluster with its number of interviews
+      units <- if (cluster_list) sample_data$interviews else rep(1, nrow(sample_data))
 
       rows <- list(
         c("Study name", or_blank(input$study_name)),
         c("Sampling method", SAMPLING_METHOD_LABELS[[spec$method]]),
+        c("Frame", if (cluster_list) "Cluster list (one row per cluster); units are selected within each cluster in the field"
+                   else if (is_cluster) "Unit list (one row per unit)" else ""),
         c("Selection within strata", if (spec$method == "stratified") or_blank(spec$within) else ""),
         c("Strata variable", if (is_strat) or_blank(spec$strata_var) else ""),
         c("Allocation", if (is_strat) or_blank(spec$allocation) else ""),
@@ -1228,6 +1428,7 @@ sampling_generator_server <- function(id, study_name = NULL) {
         c("Cluster population variable", if (is_cluster) or_blank(spec$pop_var) else ""),
         c("Cluster selection", if (is_cluster) (if (isTRUE(spec$use_pps)) "PPS with replacement" else "Equal probability without replacement") else ""),
         c("Interviews per cluster (m)", if (is_cluster) or_blank(spec$n_units) else ""),
+        c("Reserve clusters requested", if (is_cluster) paste0(or_blank(spec$reserve_clusters), if (is_strat) " per stratum") else ""),
         c("Frame sorted by", or_blank(spec$sort_var)),
         c("Unit ID variable", or_blank(spec$id_var)),
         c("Requested sample size", or_blank(spec$sample_size)),
@@ -1240,10 +1441,15 @@ sampling_generator_server <- function(id, study_name = NULL) {
       for (i in seq_len(nrow(check$exclusions))) {
         rows[[length(rows) + 1]] <- c(paste0("  Excluded: ", check$exclusions$reason[i]), or_blank(check$exclusions$rows[i]))
       }
+      weight_sum <- sum(sample_data$base_weight[main] * units[main])
+      in_reserve <- !is.na(sample_data$cluster_reserve_order)
       rows <- c(rows, list(
-        c("Main sample drawn", or_blank(sum(main))),
-        c("Buffer units drawn", or_blank(sum(!main))),
-        c("Sum of base weights (main sample)", or_blank(round(sum(sample_data$base_weight[main]), 1))),
+        c("Clusters selected", if (cluster_list) or_blank(sum(main)) else ""),
+        c("Main sample drawn", or_blank(sum(units[main]))),
+        c("Buffer units drawn", if (cluster_list) "" else or_blank(sum(sample_data$sample_type == "Buffer"))),
+        c("Reserve clusters drawn", if (is_cluster) or_blank(length(unique(paste(sample_data$stratum, sample_data$cluster_id)[in_reserve]))) else ""),
+        c("Units drawn in reserve clusters", if (is_cluster && !cluster_list) or_blank(sum(in_reserve)) else ""),
+        c("Sum of base weights (main sample)", if (is.na(weight_sum)) "Not available until the selected clusters are listed" else or_blank(round(weight_sum, 1))),
         c("Generated at", format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")),
         c("App version", app_version()),
         c("R version", R.version.string)
@@ -1323,7 +1529,7 @@ sampling_generator_server <- function(id, study_name = NULL) {
         if (!is.null(allocation_result())) sheets[["Allocation"]] <- allocation_result()
         if (!is.null(cluster_summary()) && nrow(cluster_summary()) > 0) sheets[["Cluster Summary"]] <- cluster_summary()
         if (!is.null(frame_check_result())) sheets[["Frame Checks"]] <- frame_check_result()$issues
-        sheets[["Column Guide"]] <- DESIGN_COLUMN_NOTES
+        sheets[["Column Guide"]] <- if ("interviews" %in% names(generated_sample())) CLUSTER_LIST_COLUMN_NOTES else DESIGN_COLUMN_NOTES
 
         write_sample_workbook(file, sheets, empty_replacement_log())
       }
