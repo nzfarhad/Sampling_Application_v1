@@ -394,7 +394,7 @@ Implementation notes:
 
 ### 7b. New questions and rules
 
-- [ ] **7.1 Question set (M).** Plain language, and each question is shown only when it applies:
+- [x] **7.1 Question set (M).** Plain language, and each question is shown only when it applies:
 
   | # | Question | Answers |
   |---|---|---|
@@ -407,7 +407,7 @@ Implementation notes:
   | 7 | What constraints apply? (multi-select) | Insecure or inaccessible areas / Limits on reaching women / Tight budget or time |
   | 8 | *Evaluation only:* how is the comparison set up? | Before/after only / Treatment and comparison groups. Then: same households followed, or new households each round. Then: random assignment or not. |
 
-- [ ] **7.2 Rules as a table (M).**
+- [x] **7.2 Rules as a table (M).**
   - Move the logic from nested `if` statements into a readable rule table: conditions → design, reasons, alternatives and warnings.
   - Keep it free of Shiny code, as for the other function files.
   - Designs to cover:
@@ -424,25 +424,25 @@ Implementation notes:
     - purposive, quota and snowball
     - respondent-driven sampling (as an option for hidden groups)
   - LQAS stays out (D4).
-- [ ] **7.3 Method content (S).** Rewrite `SAMPLING_METHODS` for ATR's work: when to use each method, what list it needs, and common field problems. Drop the generic pros and cons that are already in the Sampling Guideline, and link to the guideline article instead.
+- [x] **7.3 Method content (S).** Rewrite `SAMPLING_METHODS` for ATR's work: when to use each method, what list it needs, and common field problems. Drop the generic pros and cons that are already in the Sampling Guideline, and link to the guideline article instead.
 
 ### 7c. Output
 
-- [ ] **7.4 One design you can act on (M).** The result shows:
+- [x] **7.4 One design you can act on (M).** The result shows:
   - **Recommended design** with each stage spelled out, e.g. "Stratified two-stage cluster sample. Strata: provinces. Stage 1: villages by PPS using beneficiary counts. Stage 2: households systematically from the list. Draw 10% reserves."
   - **Why:** one line per answer that drove the choice.
   - **Alternatives, and when to switch**, e.g. "If there is no household list in the selected villages, use segmentation or random walk."
   - **Warnings:** coverage gaps (incomplete list, phone-only), limits on generalising, insecure areas (reserve clusters, no silent replacement), reaching women (female enumerators, choosing the respondent in the household).
   - **Field protocol links** to the guideline pages: replacement protocol, phone call-back rules, site verification.
-- [ ] **7.5 Hand-over to other tabs (M).**
+- [x] **7.5 Hand-over to other tabs (M).**
   - A "Calculate sample size" button opens the Sample Calculator or the Evaluation Calculator (chosen by the study purpose), with the design and a suggested DEFF filled in.
   - A "Draw the sample" button opens the Sample Generator with the method set, and the strata noted from question 4.
   - The values filled in can still be changed. The receiving tab says where they came from.
-- [ ] **7.6 PDF (S).** Includes the answers, the design, the reasons, alternatives, warnings and next steps. It is always built from the current answers (as in 7.0), and shows the version.
+- [x] **7.6 PDF (S).** Includes the answers, the design, the reasons, alternatives, warnings and next steps. It is always built from the current answers (as in 7.0), and shows the version.
 
 ### 7d. Tests and documentation
 
-- [ ] **7.7 Tests and documentation (M).**
+- [x] **7.7 Tests and documentation (M).**
   - Every answer combination gives exactly one recommended design, and a known one. Questions that do not apply are ignored.
   - Rules: a list of named scenarios with the expected design, e.g.
     - wheat PDM (beneficiary list, many villages, reported by province) → stratified cluster, PPS;
@@ -453,6 +453,32 @@ Implementation notes:
   - Without random selection there is never a probability design, and never a margin of error.
   - Hand-over: `testServer` checks that the calculator and generator inputs are set.
   - Update `guide_content/decision_tree.md` and the Playwright check (an evaluation scenario and the hand-over buttons).
+
+**Phase 7 status (2026-10-16):** implemented.
+
+- **Where the code is:**
+  - The rules are in a new `decision_tree_functions.R`, which has no Shiny code. It contains the questions, `DESIGNS` (15 designs), `DESIGN_RULES` (first match wins) and the functions for stages, reasons, alternatives, warnings, protocols and hand-over.
+  - The module only shows the result. The receiving tabs each return `apply_handover()`, and `app.R` wires them together. `wiki_server()` now returns `show_article()`, so the protocol links open the right page.
+- **Differences from 7.1:**
+  - "What are you sampling?" has two answers: households or people, and sites. "People on a beneficiary list" is covered by the list question ("a full list of the units ... e.g. a beneficiary list"). Key informants are covered by the qualitative purpose.
+  - The list question splits village lists into "with counts" (PPS) and "without counts" (equal probability).
+  - "The list is incomplete or out of date" is a constraint, which gives a coverage warning.
+  - Question 8 has three parts: comparison set-up (before/after; groups at endline only; groups at baseline and endline), then panel or not, then random assignment or not.
+  - "Overall" stays ticked next to the other groups. The overall result is always reported.
+- **Rule choices:**
+  - Gender is a stratum only when the list is a unit list. Otherwise a warning explains how to interview women within selected households.
+  - A full list with no security or budget limits draws directly from the list. Otherwise many villages give a cluster design.
+  - Evaluations with a comparison group sample the two groups separately, as strata.
+- **Hand-over:**
+  - Sets the method, m 10 and ICC 0.06 (DEFF 1.54), a suggested non-response rate (phone 20%, mixed 15%, RDD 30%, otherwise 5%) and the precision target.
+  - For evaluations, sets the evaluation design and clustering.
+  - For the generator, sets the method, cluster list or unit list, PPS, and the strata to choose after upload.
+  - The calculator hides its earlier result until Calculate is clicked again.
+- **Tests:**
+  - All 14,400 answer combinations are checked. Questions that do not apply are checked to have no effect.
+  - Named scenarios, the gender-stratum rule, coverage warnings, the module server (live updates, hand-over, article links), the PDF, and `apply_handover()` in all three receiving modules are tested.
+  - The Playwright check runs the PDM scenario, both hand-over buttons, an evaluation hand-over (DiD panel) and a protocol link, at desktop and phone width.
+- **Follow-up for Phase 6.2:** the panel hand-over leaves ρ at 0, the current default. When ANCOVA and the ρ guidance are added, also pass a suggested ρ.
 
 ---
 
