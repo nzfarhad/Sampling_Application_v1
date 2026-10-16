@@ -631,10 +631,11 @@ evaluation_check_indicator <- function(a) {
 #' Scenario for one row of the indicators table
 #'
 #' Columns: Indicator, Type ("proportion" or "mean"), Baseline, SD (means),
-#' Change (signed; read on the scenario's effect scale: points or units,
-#' percent of the baseline, or d), ICC (optional, replaces the common ICC),
-#' Control_Baseline and Control_Trend (arm designs; blank means the same as
-#' the baseline, and no trend)
+#' Change (signed: negative for a decrease), Scale (optional, the row's scale
+#' for Change: "absolute" points or units, "relative" percent of the baseline,
+#' or "d"; without it the scenario's effect_scale is used), ICC (optional,
+#' replaces the common ICC), Control_Baseline and Control_Trend (arm designs;
+#' blank means the same as the baseline, and no trend)
 evaluation_indicator_args <- function(a, row, i = 1) {
   num <- function(x) if (is.null(x)) NA_real_ else suppressWarnings(as.numeric(x))
   type <- tolower(trimws(as.character(eval_opt(row$Type, "proportion"))))
@@ -647,9 +648,14 @@ evaluation_indicator_args <- function(a, row, i = 1) {
   b$p1 <- num(row$Baseline)
   b$sd <- num(row$SD)
   b$p2 <- NA
-  scale <- eval_opt(a$effect_scale, "absolute")
-  # Proportions have no d: on the d scale their change is read in points
-  if (scale == "value2" || (scale == "d" && b$outcome == "proportion")) scale <- "absolute"
+  row_scale <- if (is.null(row$Scale)) NA else as.character(row$Scale)
+  if (!is.na(row_scale) && nzchar(row_scale)) {
+    scale <- row_scale
+  } else {
+    scale <- eval_opt(a$effect_scale, "absolute")
+    # Proportions have no d: on the scenario's d scale their change is read in points
+    if (scale == "value2" || (scale == "d" && b$outcome == "proportion")) scale <- "absolute"
+  }
   b$effect_scale <- scale
   change <- num(row$Change)
   if (!is.na(change)) {
@@ -1040,29 +1046,32 @@ evaluation_format_effect <- function(a, x) {
   paste0(if (pts < 0.1) format(signif(pts, 2)) else round(pts, 1), " percentage points")
 }
 
-#' Re-express the Change column of an indicators table on another scale, so
-#' each row keeps the same change in outcome units
-#'
-#' Scales: "absolute" (points or units), "relative" (% of the baseline) and
-#' "d" (standard deviations; means only, so proportion rows are left as they
-#' are). "value2" is read as "absolute".
-evaluation_convert_change <- function(tab, from, to) {
-  scale <- function(s) if (is.null(s) || identical(s, "value2")) "absolute" else s
-  from <- scale(from)
-  to <- scale(to)
-  if (from == to || is.null(tab) || nrow(tab) == 0) return(tab)
-  num <- function(x) suppressWarnings(as.numeric(x))
-  change <- num(tab$Change)
-  base <- abs(num(tab$Baseline))
-  sd <- num(tab$SD)
-  is_mean <- startsWith(tolower(trimws(as.character(tab$Type))), "m")
-  # Proportions have no d: on the d scale their change is held in points
-  from_row <- ifelse(!is_mean & from == "d", "absolute", from)
-  to_row <- ifelse(!is_mean & to == "d", "absolute", to)
-  units <- ifelse(from_row == "relative", change / 100 * base, ifelse(from_row == "d", change * sd, change))
-  new <- ifelse(to_row == "relative", ifelse(base > 0, units / base * 100, NA), ifelse(to_row == "d", units / sd, units))
-  tab$Change <- ifelse(is.na(change) | from_row == to_row, change, new)
-  tab
+#' One indicator's change in words, so the user sees what the entries mean:
+#' "0.3 → 0.22: a decrease of 8 percentage points (26.7% of the baseline;
+#' Cohen's h 0.17)". Arm designs describe the treatment arm, including the
+#' control trend. Returns a prompt when an entry is missing or invalid.
+evaluation_indicator_preview <- function(a, row, i = 1) {
+  b <- evaluation_indicator_args(modifyList(a, list(mode = "sample_size")), row, i)
+  if (is.na(b$p1)) return("Enter the baseline.")
+  if (eval_is_mean(b) && (is.na(b$sd) || b$sd <= 0)) return("Enter the standard deviation.")
+  if (identical(b$effect_scale, "d") && !eval_is_mean(b)) return("Cohen's d applies to means only: give a proportion's change in points or % of baseline.")
+  if (identical(b$effect_scale, "relative") && b$p1 == 0) return("A relative change needs a baseline other than 0.")
+  D <- evaluation_effect(b)
+  if (is.na(D)) return("Enter the size of the change.")
+  if (D == 0) return("The change must not be 0.")
+  p <- tryCatch(evaluation_proportions(b), error = function(e) NULL)
+  if (is.null(p)) return("The change takes the proportion outside 0 to 1.")
+  num <- function(x) format(signif(x, 4))
+  arms <- b$design %in% EVALUATION_ARM_DESIGNS
+  std <- evaluation_standardised(b, D)
+  paste0(
+    if (arms) "Treatment " else "", num(p[[1]]), " → ", num(p[[2]]), ": ",
+    if (identical(b$direction, "decrease")) "a decrease" else "an increase", " of ", evaluation_format_effect(b, D),
+    " (", if (b$p1 != 0) paste0(round(D / abs(b$p1) * 100, 1), "% of the baseline; ") else "",
+    sub("Standardised Effect \\((.*)\\)", "\\1", std$label), " ", round(std$value, 2), ")",
+    if (arms && p[["c2"]] != p[["c1"]]) paste0(", on top of the control trend (control ", num(p[["c1"]]), " → ", num(p[["c2"]]), ")") else "",
+    "."
+  )
 }
 
 evaluation_steps <- function(res) {

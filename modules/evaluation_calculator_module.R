@@ -4,16 +4,19 @@
 # for proportions and means, with several indicators, subgroups and field
 # adjustments. The formulas are in sample_size_functions.R.
 
-EVAL_INDICATOR_COLUMNS <- c(Indicator = "Indicator", Type = "Type (proportion / mean)", Baseline = "Baseline",
-                            SD = "SD (means)", Change = "Change", ICC = "ICC (optional)",
-                            Control_Baseline = "Control baseline (DiD / ANCOVA)", Control_Trend = "Control trend (DiD / ANCOVA)")
 EVAL_SUBGROUP_COLUMNS <- c(Subgroup = "Subgroup", Share = "Share of the sample (%)", Fixed = "Fixed sample (optional)")
 
-eval_default_indicators <- function() {
-  data.frame(Indicator = c("Food consumption score", "Households with poor food consumption"),
-             Type = c("mean", "proportion"), Baseline = c(40, 0.30), SD = c(12, NA), Change = c(3, -0.08),
-             ICC = NA_real_, Control_Baseline = NA_real_, Control_Trend = NA_real_, stringsAsFactors = FALSE)
-}
+# Starting values of the key indicator rows (several indicators), and of an added row
+EVAL_INDICATOR_START <- list(
+  list(name = "Food consumption score", type = "mean", baseline = 40, sd = 12, direction = "increase", size = 3,
+       scale = "absolute", icc = NA, control_baseline = NA, control_trend = NA),
+  list(name = "Households with poor food consumption", type = "proportion", baseline = 0.30, sd = NA,
+       direction = "decrease", size = 0.08, scale = "absolute", icc = NA, control_baseline = NA, control_trend = NA)
+)
+EVAL_INDICATOR_BLANK <- list(name = "", type = "proportion", baseline = NA, sd = NA, direction = "increase", size = NA,
+                             scale = "absolute", icc = NA, control_baseline = NA, control_trend = NA)
+EVAL_CHANGE_SCALES <- c("Points (proportion) or units (mean)" = "absolute", "% of the baseline" = "relative",
+                        "Cohen's d (means only)" = "d")
 
 eval_default_subgroups <- function() {
   data.frame(Subgroup = c("Female-headed households", "Male-headed households"), Share = c(20, 80),
@@ -202,21 +205,16 @@ evaluation_calculator_ui <- function(id) {
               conditionalPanel(
                 condition = several,
                 ns = ns,
-                p("One row per key indicator. Type is proportion or mean. Give the change with its sign (negative for a decrease), ",
-                  "on the scale chosen below. Leave the ICC blank to use the common ICC, and the control columns blank for the same ",
-                  "baseline as treatment and no trend. Double-click a cell to edit it.",
+                p("Add each key indicator. Proportions are entered from 0 to 1 (0.30 = 30%). The line under each indicator ",
+                  "shows what its entries mean; check it before using the result.",
                   class = "text-muted small"),
-                DT::dataTableOutput(ns("indicators_table")),
-                div(
-                  class = "mt-2 mb-2",
-                  actionButton(ns("add_indicator"), "Add indicator", class = "btn btn-outline-secondary btn-sm"),
-                  actionButton(ns("remove_indicator"), "Remove last", class = "btn btn-outline-secondary btn-sm")
-                ),
+                uiOutput(ns("indicator_rows")),
+                actionButton(ns("add_indicator"), "Add indicator", class = "btn btn-outline-secondary btn-sm mb-2"),
                 checkboxInput(ns("bonferroni"), "Bonferroni correction (α divided by the number of indicators)", value = FALSE)
               ),
 
               conditionalPanel(
-                condition = size_mode,
+                condition = paste0(size_mode, " && ", one),
                 ns = ns,
                 radioButtons(ns("effect_scale"), "State the change to detect as",
                              choices = list("Difference (points or units)" = "absolute",
@@ -545,7 +543,7 @@ evaluation_calculator_server <- function(id, study_name = NULL, on_article = NUL
     observe({
       req(input$design)
       choices <- list("Difference (points or units)" = "absolute", "Relative change (% of baseline)" = "relative")
-      if (several() || identical(input$outcome, "mean")) choices[["Standardised effect (Cohen's d)"]] <- "d"
+      if (identical(input$outcome, "mean")) choices[["Standardised effect (Cohen's d)"]] <- "d"
       if (!several() && input$design %in% c("independent", "panel")) {
         choices[[if (identical(input$outcome, "mean")) "Second value (mean 2)" else "Second value (p₂)"]] <- "value2"
       }
@@ -565,77 +563,124 @@ evaluation_calculator_server <- function(id, study_name = NULL, on_article = NUL
       p(text, class = "text-muted small mb-0")
     })
 
-    # Editable tables: indicators and subgroups
-    indicators <- reactiveVal(eval_default_indicators())
+    # Key indicators (several): one block of inputs per indicator. Row ids are never
+    # reused, so each input keeps its value when rows are added or removed.
+    ind_ids <- reactiveVal(seq_along(EVAL_INDICATOR_START))
+    ind_start <- EVAL_INDICATOR_START
+    ind_input <- function(id, field) paste0("ind_", id, "_", field)
+    ind_value <- function(id, field) {
+      v <- input[[ind_input(id, field)]]
+      if (is.null(v)) ind_start[[id]][[field]] else v
+    }
+
+    indicator_table <- reactive({
+      num <- function(x) if (is.null(x) || length(x) == 0) NA_real_ else suppressWarnings(as.numeric(x))
+      rows <- lapply(ind_ids(), function(id) {
+        size <- num(ind_value(id, "size"))
+        data.frame(
+          Indicator = trimws(as.character(ind_value(id, "name"))), Type = ind_value(id, "type"),
+          Baseline = num(ind_value(id, "baseline")), SD = num(ind_value(id, "sd")),
+          Change = if (identical(ind_value(id, "direction"), "decrease")) -size else size,
+          Scale = ind_value(id, "scale"), ICC = num(ind_value(id, "icc")),
+          Control_Baseline = num(ind_value(id, "control_baseline")), Control_Trend = num(ind_value(id, "control_trend")),
+          stringsAsFactors = FALSE
+        )
+      })
+      do.call(rbind, rows)
+    })
+
+    indicator_row_ui <- function(id, j, removable) {
+      f <- function(field) session$ns(ind_input(id, field))
+      v <- function(field) ind_value(id, field)
+      size_mode_js <- sprintf("input['%s'] == 'sample_size'", session$ns("eval_mode"))
+      div(
+        class = "ev-ind",
+        div(class = "d-flex justify-content-between align-items-center mb-1",
+            tags$strong(paste("Indicator", j)),
+            if (removable) actionLink(f("remove"), "Remove")),
+        div(
+          class = "row g-2",
+          div(class = "col-md-6", textInput(f("name"), "Name", value = v("name"), placeholder = "e.g. Food consumption score")),
+          div(class = "col-md-3 col-6",
+              selectInput(f("type"), "Type", c("Proportion" = "proportion", "Mean" = "mean"), selected = v("type"), selectize = FALSE)),
+          div(class = "col-md-3 col-6",
+              numericInput(f("icc"), "ICC (blank: common)", value = v("icc"), min = 0, max = 1, step = 0.01))
+        ),
+        div(
+          class = "row g-2",
+          div(class = "col-md-3 col-6", numericInput(f("baseline"), "Baseline", value = v("baseline"), step = 0.01)),
+          conditionalPanel(sprintf("input['%s'] == 'mean'", f("type")), class = "col-md-3 col-6",
+                           numericInput(f("sd"), "Standard deviation", value = v("sd"), min = 0, step = 1)),
+          div(class = "col-md-3 col-6",
+              selectInput(f("direction"), "Expected change", c("Increase" = "increase", "Decrease" = "decrease"),
+                          selected = v("direction"), selectize = FALSE)),
+          conditionalPanel(size_mode_js, class = "col-md-3 col-6",
+                           numericInput(f("size"), "Size of the change", value = v("size"), min = 0, step = 0.01))
+        ),
+        conditionalPanel(
+          size_mode_js,
+          selectInput(f("scale"), "Size measured in", EVAL_CHANGE_SCALES, selected = v("scale"), selectize = FALSE)
+        ),
+        conditionalPanel(
+          sprintf("['did_cross', 'did_panel', 'ancova'].indexOf(input['%s']) >= 0", session$ns("design")),
+          div(
+            class = "row g-2",
+            div(class = "col-md-6 col-6",
+                numericInput(f("control_baseline"), "Control baseline (blank: as treatment)", value = v("control_baseline"), step = 0.01)),
+            div(class = "col-md-6 col-6",
+                numericInput(f("control_trend"), "Control trend (blank: none)", value = v("control_trend"), step = 0.01))
+          )
+        ),
+        conditionalPanel(size_mode_js, uiOutput(f("preview")))
+      )
+    }
+
+    output$indicator_rows <- renderUI({
+      ids <- ind_ids()
+      isolate(tagList(lapply(seq_along(ids), function(j) indicator_row_ui(ids[j], j, length(ids) > 1))))
+    })
+
+    # Each row's preview line and Remove link
+    add_row_handlers <- function(id) {
+      output[[ind_input(id, "preview")]] <- renderUI({
+        j <- match(id, ind_ids())
+        req(!is.na(j))
+        txt <- evaluation_indicator_preview(list(design = input$design), indicator_table()[j, , drop = FALSE], j)
+        p(class = "ev-ind-preview small mb-0", txt)
+      })
+      observeEvent(input[[ind_input(id, "remove")]], {
+        if (length(ind_ids()) > 1) ind_ids(setdiff(ind_ids(), id))
+      }, ignoreInit = TRUE)
+    }
+    for (id in seq_along(EVAL_INDICATOR_START)) add_row_handlers(id)
+    observeEvent(input$add_indicator, {
+      id <- length(ind_start) + 1
+      ind_start[[id]] <<- EVAL_INDICATOR_BLANK
+      add_row_handlers(id)
+      ind_ids(c(ind_ids(), id))
+    })
+
+    # Editable subgroup table
     subgroups <- reactiveVal(eval_default_subgroups())
 
-    edit_table <- function(store, edit, text_cols) {
+    edit_table <- function(store, edit) {
       tab <- store()
       col <- names(tab)[edit$col + 1]
-      value <- edit$value
-      if (col %in% text_cols) {
-        if (col == "Type") {
-          v <- tolower(trimws(value))
-          value <- if (startsWith(v, "m")) "mean" else if (startsWith(v, "p")) "proportion" else {
-            showNotification("Type must be proportion or mean", type = "warning")
-            tab$Type[edit$row]
-          }
-        }
-        tab[edit$row, col] <- value
-      } else {
-        tab[edit$row, col] <- suppressWarnings(as.numeric(value))
-      }
+      tab[edit$row, col] <- if (col == "Subgroup") edit$value else suppressWarnings(as.numeric(edit$value))
       store(tab)
     }
-    observeEvent(input$indicators_table_cell_edit, {
-      edit <- input$indicators_table_cell_edit
-      if (names(indicators())[edit$col + 1] == "Change") {
-        # Typed on the shown scale; stored in points or units
-        tab <- indicators()
-        row <- tab[edit$row, , drop = FALSE]
-        row$Change <- suppressWarnings(as.numeric(edit$value))
-        tab$Change[edit$row] <- evaluation_convert_change(row, table_scale(), "absolute")$Change
-        indicators(tab)
-      } else {
-        edit_table(indicators, edit, c("Indicator", "Type"))
-      }
-    })
-    observeEvent(input$subgroups_table_cell_edit, edit_table(subgroups, input$subgroups_table_cell_edit, "Subgroup"))
-    observeEvent(input$add_indicator, {
-      tab <- indicators()
-      new <- tab[1, ]
-      new[1, ] <- NA
-      new$Indicator <- paste("Indicator", nrow(tab) + 1)
-      new$Type <- "proportion"
-      indicators(rbind(tab, new))
-    })
-    observeEvent(input$remove_indicator, if (nrow(indicators()) > 1) indicators(indicators()[-nrow(indicators()), ]))
+    observeEvent(input$subgroups_table_cell_edit, edit_table(subgroups, input$subgroups_table_cell_edit))
     observeEvent(input$add_subgroup, {
       tab <- subgroups()
       subgroups(rbind(tab, data.frame(Subgroup = paste("Subgroup", nrow(tab) + 1), Share = NA_real_, Fixed = NA_real_)))
     })
     observeEvent(input$remove_subgroup, if (nrow(subgroups()) > 1) subgroups(subgroups()[-nrow(subgroups()), ]))
 
-    # indicators() keeps each Change in points or units, whatever the scale, so switching
-    # scales never rewrites (or rounds) it. The table shows and reads the Change on the
-    # chosen scale.
-    table_scale <- reactive(if (is.null(input$effect_scale) || input$effect_scale == "value2") "absolute" else input$effect_scale)
-    indicators_on_scale <- reactive(evaluation_convert_change(indicators(), "absolute", table_scale()))
-    change_label <- reactive(switch(table_scale(),
-      relative = "Change (% of baseline)", d = "Change (d for means, points for proportions)", "Change (points or units)"))
-
     editable_table <- function(tab, labels) {
       DT::datatable(tab, colnames = unname(labels[names(tab)]), rownames = FALSE, selection = "none",
                     editable = list(target = "cell"),
                     options = list(dom = "t", paging = FALSE, ordering = FALSE, scrollX = TRUE))
     }
-    output$indicators_table <- DT::renderDataTable({
-      labels <- EVAL_INDICATOR_COLUMNS
-      labels[["Change"]] <- change_label()
-      shown <- indicators_on_scale()
-      shown$Change <- signif(shown$Change, 6)   # display only; the stored value is exact
-      editable_table(shown, labels)
-    })
     output$subgroups_table <- DT::renderDataTable(editable_table(subgroups(), EVAL_SUBGROUP_COLUMNS))
 
     args <- reactive({
@@ -683,7 +728,7 @@ evaluation_calculator_server <- function(id, study_name = NULL, on_article = NUL
         cv_weights = input$cv_weights,
         population = input$population,
         matching_factor = if (isTRUE(input$matching)) input$matching_factor else 1,
-        indicators = if (several()) indicators_on_scale() else NULL,
+        indicators = if (several()) indicator_table() else NULL,
         bonferroni = several() && isTRUE(input$bonferroni),
         subgroups = sg,
         subgroup_goal = if (is.null(input$subgroup_goal)) "overall" else input$subgroup_goal,

@@ -232,3 +232,21 @@ h2 {
   flex-shrink: 0;
   margin-top: 0.2rem;
 }
+
+/* Evaluation Calculator: one block per key indicator, with a line saying what the entries mean */
+.ev-ind {
+  border-left: 3px solid #730202;
+  background-color: #fbf6f6;
+  border-radius: 0 6px 6px 0;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.ev-ind .form-group {
+  margin-bottom: 0.4rem;
+}
+
+.ev-ind-preview {
+  color: #730202;
+  font-weight: 600;
+}

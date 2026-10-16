@@ -72,14 +72,19 @@ test_that("evaluation server: means, several indicators and subgroups", {
     r <- result()
     expect_equal(nrow(r$indicators), 2)
     expect_match(paste(as.character(output$headline), collapse = ""), r$indicator_name)
-    # Editing a cell changes the indicator table
-    session$setInputs(indicators_table_cell_edit = list(row = 2, col = 4, value = "-0.15"))
-    expect_equal(indicators()$Change[2], -0.15)
+    # Each indicator is a block of inputs; a decrease is a direction, not a sign
+    session$setInputs(ind_2_size = 0.15)
+    expect_equal(indicator_table()$Change, c(3, -0.15))
+    expect_match(paste(as.character(output$indicator_rows), collapse = ""), "Households with poor food consumption")
     session$setInputs(add_indicator = 1)
-    expect_equal(nrow(indicators()), 3)
-    expect_error(result(), "Indicator 3")
-    session$setInputs(remove_indicator = 1)
+    expect_equal(nrow(indicator_table()), 3)
+    expect_error(result(), "Indicator 3: Enter the baseline")
+    session$setInputs(ind_3_remove = 1)
     expect_equal(nrow(result()$indicators), 2)
+    # Rows added later get new ids, so earlier values are kept
+    session$setInputs(add_indicator = 2)
+    expect_equal(ind_ids(), c(1, 2, 4))
+    expect_equal(indicator_table()$Change[1:2], c(3, -0.15))
 
     eval_inputs(session, use_subgroups = TRUE, subgroup_goal = "within")
     expect_equal(result()$factor, 5)
@@ -113,34 +118,34 @@ test_that("evaluation server: PDF renders", {
   })
 })
 
-test_that("evaluation server: changing the scale converts the indicator table, so the sample stays the same", {
-  # Reported case: several indicators, known DEFF 1.5, m 6, matching 1.3, then "Relative change" chosen
+test_that("evaluation server: each indicator states its own scale, and its preview says what it means", {
+  # Reported case: several indicators, known DEFF 1.5, m 6, matching 1.3
   testServer(evaluation_calculator_server, {
     eval_inputs(session, indicator_count = "several", deff_method = "known", deff_known = 1.5, m = 6,
                 response_rate = 90, matching = TRUE, matching_factor = 1.3)
     before <- result()$indicators$Sample_per_Group
     expect_equal(before, c(546, 1014))
-    # The stored change stays in points or units, exactly; only the shown table is converted
-    for (scale in c("relative", "d", "absolute", "relative", "absolute", "d", "absolute")) {
-      session$setInputs(effect_scale = scale)
-      expect_identical(indicators()$Change, c(3, -0.08))
-      expect_equal(result()$indicators$Sample_per_Group, before)
-    }
-    session$setInputs(effect_scale = "relative")
-    expect_equal(indicators_on_scale()$Change, c(7.5, -0.08 / 0.3 * 100))
-    expect_length(result()$warnings, 0)
-    expect_match(paste(as.character(output$indicators_table), collapse = ""), "Change \\(% of baseline\\)")
-    session$setInputs(effect_scale = "d")
-    expect_equal(indicators_on_scale()$Change, c(0.25, -0.08))   # proportions are shown in points on the d scale
-    # An edit typed on the shown scale is stored in points: 10% of a 0.30 baseline = 0.03
-    session$setInputs(effect_scale = "relative", indicators_table_cell_edit = list(row = 2, col = 4, value = "-10"))
-    expect_equal(indicators()$Change[2], -0.03)
-    session$setInputs(effect_scale = "absolute", indicators_table_cell_edit = list(row = 2, col = 4, value = "-0.08"))
-    expect_identical(indicators()$Change, c(3, -0.08))
+    expect_match(paste(as.character(output$ind_2_preview), collapse = ""), "0.3 → 0.22: a decrease of 8 percentage points")
+    expect_match(paste(as.character(output$ind_1_preview), collapse = ""), "40 → 43: an increase of 3 units")
 
-    # A change typed on the wrong scale is flagged
-    session$setInputs(effect_scale = "relative", indicators_table_cell_edit = list(row = 2, col = 4, value = "-0.08"))
+    # The single-indicator scale no longer touches the indicators
+    session$setInputs(effect_scale = "relative")
+    expect_equal(result()$indicators$Sample_per_Group, before)
+
+    # The same changes stated another way give the same samples
+    session$setInputs(ind_2_scale = "relative", ind_2_size = 0.08 / 0.3 * 100, ind_1_scale = "d", ind_1_size = 0.25)
+    expect_equal(result()$indicators$Sample_per_Group, before)
+    expect_match(paste(as.character(output$ind_2_preview), collapse = ""), "0.3 → 0.22")
+
+    # A size typed on the wrong scale shows in the preview and gives a warning
+    session$setInputs(ind_2_size = 0.08)
+    expect_match(paste(as.character(output$ind_2_preview), collapse = ""), "0.3 → 0.2998")
     expect_true(any(grepl("very small", result()$warnings)))
     expect_match(paste(as.character(output$warnings), collapse = ""), "very large")
+
+    # d is for means only
+    session$setInputs(ind_2_scale = "d")
+    expect_match(paste(as.character(output$ind_2_preview), collapse = ""), "means only")
+    expect_error(result(), "Households with poor food consumption: Cohen's d applies to means only")
   })
 })

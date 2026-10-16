@@ -257,46 +257,59 @@ test_that("validation: symmetry and scale invariance", {
                n_of(outcome = "mean", p1 = 40, sd = 12, effect_scale = "d", effect_d = 0.25)$n_base)
 })
 
-# ---- Change scale of the indicator table (reported case) ----------------------------------
+# ---- Indicator change scales (reported case) -----------------------------------------------
+
+ind_tab <- function(...) {
+  modifyList(list(Indicator = c("FCS", "Poor FC"), Type = c("mean", "proportion"), Baseline = c(40, 0.3), SD = c(12, NA),
+                  Change = c(3, -0.08), Scale = c("absolute", "absolute"), ICC = NA), list(...)) |>
+    as.data.frame(stringsAsFactors = FALSE)
+}
 
 test_that("validation: points read as % of baseline give an implausible sample, flagged by a warning", {
-  tab <- data.frame(Indicator = c("FCS", "Poor FC"), Type = c("mean", "proportion"), Baseline = c(40, 0.3), SD = c(12, NA),
-                    Change = c(3, -0.08), ICC = NA, stringsAsFactors = FALSE)
-  a <- base_args(response_rate = 0.9, clustered = TRUE, deff_method = "known", deff_known = 1.5, m = 6,
-                 matching_factor = 1.3, indicators = tab)
-  right <- evaluation_sample_size(modifyList(a, list(effect_scale = "absolute")))
+  a <- base_args(response_rate = 0.9, clustered = TRUE, deff_method = "known", deff_known = 1.5, m = 6, matching_factor = 1.3)
+  right <- evaluation_sample_size(modifyList(a, list(indicators = ind_tab())))
   expect_equal(right$indicators$Sample_per_Group, c(546, 1014))
   expect_length(right$warnings, 0)
-  wrong <- evaluation_sample_size(modifyList(a, list(effect_scale = "relative")))
+  wrong <- evaluation_sample_size(modifyList(a, list(indicators = ind_tab(Scale = c("relative", "relative")))))
   expect_gt(wrong$n_per_group, 1e8)
   expect_true(any(grepl("very small", wrong$warnings)))
   expect_true(any(grepl("very large", wrong$warnings)))
-  # Converting the table with the scale keeps the answer
-  conv <- evaluation_convert_change(tab, "absolute", "relative")
-  expect_equal(conv$Change, c(7.5, -0.08 / 0.3 * 100), tolerance = 1e-5)   # kept to 6 significant digits
-  same <- evaluation_sample_size(modifyList(a, list(effect_scale = "relative", indicators = conv)))
-  expect_equal(same$indicators$Sample_per_Group, right$indicators$Sample_per_Group)
 })
 
-test_that("validation: converting the change scale round-trips and leaves proportions out of d", {
-  tab <- data.frame(Indicator = c("A", "B", "C"), Type = c("mean", "proportion", "mean"), Baseline = c(40, 0.3, 0),
-                    SD = c(12, NA, 5), Change = c(3, -0.08, 1), stringsAsFactors = FALSE)
-  for (to in c("relative", "d")) {
-    back <- evaluation_convert_change(evaluation_convert_change(tab, "absolute", to), to, "absolute")
-    ok <- !is.na(back$Change)
-    expect_equal(back$Change[ok], tab$Change[ok], tolerance = 1e-5)
-  }
-  d <- evaluation_convert_change(tab, "absolute", "d")
-  expect_equal(d$Change, c(0.25, -0.08, 0.2))       # the proportion is not converted
-  # relative -> d -> absolute keeps the proportion right (it goes back to points on the d scale)
-  chain <- evaluation_convert_change(evaluation_convert_change(evaluation_convert_change(tab[1:2, ], "absolute", "relative"),
-                                                               "relative", "d"), "d", "absolute")
-  expect_equal(chain$Change, tab$Change[1:2], tolerance = 1e-5)
-  # On the d scale the engine reads a proportion's change in points
-  a <- base_args(indicators = tab[1:2, ])
-  expect_equal(evaluation_sample_size(modifyList(a, list(effect_scale = "d", indicators = d[1:2, ])))$indicators$Sample_per_Group,
-               evaluation_sample_size(modifyList(a, list(effect_scale = "absolute")))$indicators$Sample_per_Group)
-  rel <- evaluation_convert_change(tab, "absolute", "relative")
-  expect_true(is.na(rel$Change[3]))                 # no relative change from a baseline of 0
-  expect_identical(evaluation_convert_change(tab, "value2", "absolute"), tab)
+test_that("validation: each indicator row has its own scale; the same change stated three ways agrees", {
+  a <- base_args(response_rate = 0.9, clustered = TRUE, icc = 0.05, m = 10)
+  ref <- evaluation_sample_size(modifyList(a, list(indicators = ind_tab())))$indicators$Sample_per_Group
+  alt <- ind_tab(Change = c(0.25, -0.08 / 0.3 * 100), Scale = c("d", "relative"))
+  expect_equal(evaluation_sample_size(modifyList(a, list(indicators = alt)))$indicators$Sample_per_Group, ref)
+  mixed <- ind_tab(Change = c(7.5, -0.08), Scale = c("relative", "absolute"))
+  expect_equal(evaluation_sample_size(modifyList(a, list(indicators = mixed)))$indicators$Sample_per_Group, ref)
+  # The row's scale wins over the scenario's
+  expect_equal(evaluation_sample_size(modifyList(a, list(effect_scale = "relative", indicators = ind_tab())))$indicators$Sample_per_Group, ref)
+  # Without a Scale column the scenario's scale is used, as before
+  old <- ind_tab()
+  old$Scale <- NULL
+  expect_equal(evaluation_sample_size(modifyList(a, list(indicators = old)))$indicators$Sample_per_Group, ref)
+  expect_error(evaluation_sample_size(modifyList(a, list(indicators = ind_tab(Scale = c("absolute", "d"))))),
+               "Poor FC: Cohen's d applies to means only")
+})
+
+test_that("validation: the indicator preview says what the entries mean", {
+  tab <- ind_tab()
+  ind <- list(design = "independent")
+  expect_equal(evaluation_indicator_preview(ind, tab[2, ], 2),
+               "0.3 → 0.22: a decrease of 8 percentage points (26.7% of the baseline; Cohen's h 0.18).")
+  expect_equal(evaluation_indicator_preview(ind, tab[1, ], 1),
+               "40 → 43: an increase of 3 units (7.5% of the baseline; Cohen's d 0.25).")
+  rel <- ind_tab(Change = c(7.5, -0.08), Scale = c("relative", "relative"))
+  expect_match(evaluation_indicator_preview(ind, rel[1, ], 1), "^40 → 43:")
+  expect_match(evaluation_indicator_preview(ind, rel[2, ], 2), "^0.3 → 0.2998: a decrease of 0.024 percentage points")
+  did <- ind_tab(Control_Trend = c(1, 0.02))
+  expect_match(evaluation_indicator_preview(list(design = "did_panel"), did[1, ], 1),
+               "^Treatment 40 → 44: an increase of 3 units .*on top of the control trend [(]control 40 → 41[)]")
+  # Prompts for missing or invalid entries
+  expect_equal(evaluation_indicator_preview(ind, ind_tab(Baseline = c(NA, 0.3))[1, ], 1), "Enter the baseline.")
+  expect_equal(evaluation_indicator_preview(ind, ind_tab(SD = c(NA, NA))[1, ], 1), "Enter the standard deviation.")
+  expect_equal(evaluation_indicator_preview(ind, ind_tab(Change = c(NA, -0.08))[1, ], 1), "Enter the size of the change.")
+  expect_match(evaluation_indicator_preview(ind, ind_tab(Scale = c("absolute", "d"))[2, ], 2), "means only")
+  expect_equal(evaluation_indicator_preview(ind, ind_tab(Change = c(3, -0.5))[2, ], 2), "The change takes the proportion outside 0 to 1.")
 })

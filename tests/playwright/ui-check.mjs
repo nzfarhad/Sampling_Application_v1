@@ -187,17 +187,20 @@ async function runAt(viewport, label) {
   if (!/810/.test(sevHead) || !/poor food consumption/.test(sevHead)) {
     report(label, `evaluation indicators: headline is "${sevHead.replace(/\s+/g, " ").slice(0, 120)}"`);
   }
-  // Switching the change scale converts the table, so the sample does not change (reported 124 million per group)
-  await page.locator('input[name="evaluation_calculator-effect_scale"][value="relative"]').check();
+  // Each indicator says what its entries mean; the same change stated as % of baseline gives the same sample
+  const preview2 = await ev("ind_2_preview").innerText();
+  if (!preview2.includes("0.3 → 0.22: a decrease of 8 percentage points")) report(label, `evaluation: indicator 2 preview is "${preview2}"`);
+  await ev("ind_2_scale").selectOption("relative");
+  await ev("ind_2_size").fill("26.6667");
+  await ev("ind_2_size").press("Tab");
   await settle(page);
   const relHead = await ev("headline").innerText();
-  if (!/810/.test(relHead)) report(label, `evaluation: relative scale changed the sample: "${relHead.replace(/\s+/g, " ").slice(0, 80)}"`);
-  if (!(await ev("indicators_table").innerText()).includes("% of baseline")) report(label, "evaluation: Change column does not name the scale");
-  await page.locator('input[name="evaluation_calculator-effect_scale"][value="absolute"]').check();
+  if (!/810/.test(relHead)) report(label, `evaluation: % of baseline changed the sample: "${relHead.replace(/s+/g, " ").slice(0, 80)}"`);
+  if (!(await ev("ind_2_preview").innerText()).includes("0.3 → 0.22")) report(label, "evaluation: preview does not follow the % of baseline entry");
+  await ev("ind_2_scale").selectOption("absolute");
+  await ev("ind_2_size").fill("0.08");
+  await ev("ind_2_size").press("Tab");
   await settle(page);
-  // Back on points, the values are exactly as entered (no rounding drift such as -0.0800001)
-  const cells = await ev("indicators_table").locator("tbody td").allInnerTexts();
-  if (!cells.includes("-0.08") || !cells.includes("3")) report(label, `evaluation: Change values after switching scales are ${JSON.stringify(cells)}`);
   await ev("use_subgroups").check();
   await settle(page);
   const details = await ev("detail_tables").innerText();

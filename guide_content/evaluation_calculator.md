@@ -17,8 +17,13 @@ Sample size, or the smallest detectable difference, when comparing a proportion 
   - a relative change (% of the baseline, e.g. 20 for "reduce stunting by 20%");
   - a standardised effect (Cohen's d, for means when the SD is uncertain);
   - the second value directly.
-- **Several key indicators:** fill in the table, one row per indicator: its name, type, baseline, SD (means), change (negative for a decrease) and, if it differs, its ICC. The largest sample is used, and the result names the indicator that drives it. Tick Bonferroni to divide α by the number of indicators.
-  - The Change column is read on the scale chosen below it, and its heading names that scale. Changing the scale converts the values, so a change of 8 points stays 8 points (for example, it becomes 26.7% of a 0.30 baseline). On the Cohen's d scale, proportions stay in points.
+- **Several key indicators:** click **Add indicator** for each one. For every indicator give:
+  - its name and type (proportion or mean);
+  - the baseline (proportions from 0 to 1, so 0.30 for 30%) and, for a mean, the standard deviation;
+  - whether you expect an increase or a decrease, and the size of the change;
+  - what the size is measured in: points or units, % of the baseline, or Cohen's d (means only).
+
+  The line under each indicator says what the entries mean, for example "0.3 → 0.22: a decrease of 8 percentage points (26.7% of the baseline)". Check it: a size typed in the wrong unit shows up there at once. Leave the ICC blank to use the common ICC. For difference-in-differences and ANCOVA, the control baseline and trend can be given; blank means the same baseline as treatment and no trend. The largest sample is used, and the result names the indicator that drives it. Tick Bonferroni to divide α by the number of indicators.
 - The response rate, and for panels the attrition and ρ (typically 0.2 to 0.5; 0.3 is a reasonable planning value).
 - The allocation ratio, if one group should be larger (e.g. 2 control households per treatment household).
 
