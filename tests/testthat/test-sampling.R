@@ -177,12 +177,14 @@ make_cluster_list <- function(C = 60, seed = 1) {
 
 test_that("cluster list: each row is a cluster, listed once with its interviews", {
   d <- make_cluster_list()
-  s <- suppressWarnings(cluster_list_sampling(d, "village", 100, 8, 3, use_pps = TRUE, pop_var = "hh", buffer_pct = 20))
+  s <- suppressWarnings(cluster_list_sampling(d, "village", 100, 8, 3, use_pps = TRUE, pop_var = "hh", reserve_clusters = 3))
   main <- s$sample_type == "Sample"
   expect_false(any(duplicated(s$village)))
   expect_equal(sum(s$selection_hits[main]), 13)
   expect_equal(sum(!main), 3)
-  expect_equal(s$reserve_order[!main], 1:3)
+  expect_equal(s$cluster_reserve_order[!main], 1:3)
+  expect_true(all(s$sample_type[!main] == "Reserve cluster"))
+  expect_true(all(is.na(s$reserve_order)))
   expect_equal(s$interviews, as.integer(pmin(8 * s$selection_hits, s$hh)))
   # PPS weights per interview add up to the list total exactly
   expect_equal(sum(s$base_weight[main] * s$interviews[main]), sum(d$hh))
@@ -260,4 +262,40 @@ test_that("a cluster list in unit-list mode points to Method 2", {
   expect_true(any(grepl("use Method 2", chk$issues$detail)))
   expect_false(any(grepl("use Method 2", check_frame(make_frame(), list(method = "cluster", cluster_var = "village",
                                                                          n_units = 5, use_pps = TRUE, sample_size = 50))$issues$detail)))
+})
+
+test_that("unit list: reserve clusters come from unselected clusters, each with m units and a buffer", {
+  d <- make_frame()
+  for (pps in c(TRUE, FALSE)) {
+    base <- suppressWarnings(two_stage_cluster_sampling(d, "village", 100, 10, 5, use_pps = pps, buffer_pct = 20))
+    s <- suppressWarnings(two_stage_cluster_sampling(d, "village", 100, 10, 5, use_pps = pps, buffer_pct = 20, reserve_clusters = 3))
+    # Adding reserves does not change the main sample or its buffer
+    expect_identical(s[is.na(s$cluster_reserve_order), names(base)], base)
+    res <- s[!is.na(s$cluster_reserve_order), ]
+    expect_equal(sort(unique(res$cluster_reserve_order)), 1:3)
+    expect_length(intersect(res$village, base$village), 0)
+    expect_true(all(table(res$village[res$sample_type == "Reserve cluster"]) == 10))
+    expect_true(all(table(res$village[res$sample_type == "Reserve cluster buffer"]) == 2))
+    expect_true(all(res$selection_hits == 1))
+    expect_false(any(duplicated(s$id)))
+  }
+  expect_warning(two_stage_cluster_sampling(d, "village", 100, 10, 5, use_pps = FALSE, reserve_clusters = 100),
+                 "reserve clusters requested")
+})
+
+test_that("unit list: reserve clusters per stratum and in the cluster summary", {
+  d <- make_frame(N = 1200, n_clusters = 30)
+  d$province <- ifelse(as.integer(sub("V", "", d$village)) %% 2 == 0, "A", "B")
+  spec <- list(method = "stratified_cluster", cluster_method = "population_units", strata_var = "province",
+               allocation = "equal", cluster_var = "village", n_units = 5, use_pps = TRUE, sample_size = 60,
+               buffer_pct = 0, seed = 3, reserve_clusters = 2)
+  s <- suppressWarnings(generate_sample_design(d, spec)$sample)
+  res <- s[!is.na(s$cluster_reserve_order), ]
+  expect_true(all(tapply(res$village, res$stratum, function(v) length(unique(v))) == 2))
+  cs <- summarise_clusters(d, s, spec)
+  expect_equal(sum(cs$times_selected[!is.na(cs$cluster_reserve_order)]), 0)
+  expect_equal(sum(cs$reserve_cluster_units), sum(s$sample_type == "Reserve cluster"))
+  expect_equal(sum(cs$sample_count), sum(s$sample_type == "Sample"))
+  chk <- check_frame(d, spec)
+  expect_true(any(grepl("2 reserve clusters per stratum", chk$issues$detail)))
 })

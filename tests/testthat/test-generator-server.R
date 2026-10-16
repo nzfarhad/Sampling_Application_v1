@@ -28,7 +28,7 @@ base_inputs <- function(session) {
                     systematic_sort_variable = "", strata_variable = "", within_method = "simple_random",
                     allocation_method = "proportional", min_per_stratum = 0, neyman_input = "proportion",
                     cluster_sampling_method = "population_units", cluster_variable = "", cluster_size = 10,
-                    use_pps = TRUE)
+                    use_pps = TRUE, reserve_clusters = 0)
 }
 
 test_that("generator: systematic draw keeps NA rows, labels buffer, records methodology", {
@@ -147,7 +147,7 @@ list_inputs <- function(session, ...) {
 
 test_that("generator: cluster list gives one row per selected cluster with its interviews", {
   testServer(sampling_generator_server, {
-    list_inputs(session, sampling_method = "cluster", sample_size = 100, random_seed = 9)
+    list_inputs(session, sampling_method = "cluster", sample_size = 100, random_seed = 9, reserve_clusters = 2)
     session$setInputs(generate_sample = 1)
     issues <- frame_check_result()$issues
     expect_true(any(grepl("Same name [(]row 5[)]", issues$detail)))
@@ -201,5 +201,28 @@ test_that("generator: stratified cluster list allocates by the households in eac
     main <- s$sample_type == "Sample"
     expect_equal(as.vector(tapply(s$selection_hits[main], s$stratum[main], sum)), preview$table$clusters_to_select)
     expect_true(all(s$province == s$stratum))
+  })
+})
+
+test_that("generator: Method 1 draws reserve clusters when asked", {
+  testServer(sampling_generator_server, {
+    base_inputs(session)
+    session$setInputs(sampling_method = "cluster", sample_size = 50, random_seed = 7, buffer_percentage = 20,
+                      cluster_variable = "village", cluster_size = 5, reserve_clusters = 2, generate_sample = 1)
+    expect_true(any(grepl("2 reserve clusters", frame_check_result()$issues$detail)))
+    session$setInputs(confirm_draw = 1)
+    s <- generated_sample()
+    expect_equal(sum(s$sample_type == "Sample"), 50)
+    res <- s[!is.na(s$cluster_reserve_order), ]
+    expect_equal(length(unique(res$cluster_id)), 2)
+    expect_true(all(res$sample_type %in% c("Reserve cluster", "Reserve cluster buffer")))
+    m <- methodology()
+    expect_equal(m$Value[m$Item == "Reserve clusters drawn"], "2")
+    expect_equal(m$Value[m$Item == "Units drawn in reserve clusters"], as.character(nrow(res)))
+    expect_equal(sum(cluster_summary()$reserve_cluster_units), sum(res$sample_type == "Reserve cluster"))
+
+    # A negative or fractional number is refused
+    session$setInputs(reserve_clusters = 1.5, generate_sample = 2)
+    expect_equal(pending_spec()$reserve_clusters, 2)
   })
 })

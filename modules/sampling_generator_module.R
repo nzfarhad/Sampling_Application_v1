@@ -438,6 +438,27 @@ sampling_generator_ui <- function(id) {
                       p("Choose the approach for 2-stage cluster sampling", class = "text-muted small")
                     )
                   ),
+                  div(
+                    class = "row mb-2",
+                    div(
+                      class = "col-md-6",
+                      numericInput(
+                        ns("reserve_clusters"),
+                        "Reserve Clusters",
+                        value = 0,
+                        min = 0,
+                        step = 1,
+                        width = "100%"
+                      ),
+                      p("Extra clusters, used in order when a selected cluster cannot be reached (e.g. insecure). Per stratum for stratified designs.", class = "text-muted small")
+                    ),
+                    div(
+                      class = "col-md-6",
+                      p(id = ns("reserve_clusters_note"), class = "text-muted small mt-md-4",
+                        "Reserve clusters are drawn from the clusters not selected, by the same method (PPS or equal probability). ",
+                        "With Method 1 each gets the same interviews per cluster and buffer as a selected cluster.")
+                    )
+                  ),
                   
                   # Method 1: Population Units Approach
                   div(
@@ -689,8 +710,9 @@ SAMPLING_METHOD_LABELS <- c(
 DESIGN_COLUMN_NOTES <- data.frame(
   Column = DESIGN_COLUMNS,
   Meaning = c(
-    "Sample = main sample; Buffer = reserve unit",
+    "Sample = main sample; Buffer = reserve unit; Reserve cluster = unit to interview in a reserve cluster; Reserve cluster buffer = reserve unit in a reserve cluster",
     "Order in which reserves are used (within the cluster for cluster designs, within the stratum for stratified designs)",
+    "Reserve clusters (cluster designs): 1, 2, 3 ... in the order to use them when a selected cluster cannot be reached (per stratum for stratified designs); blank for selected clusters",
     "Stratum (stratified designs)",
     "Cluster (cluster designs)",
     "Times the cluster was selected (PPS with replacement can select a cluster more than once)",
@@ -706,8 +728,8 @@ DESIGN_COLUMN_NOTES <- data.frame(
 CLUSTER_LIST_COLUMN_NOTES <- local({
   notes <- DESIGN_COLUMN_NOTES
   set <- function(column, meaning) notes$Meaning[notes$Column == column] <<- meaning
-  set("sample_type", "Sample = selected cluster; Buffer = reserve cluster")
-  set("reserve_order", "Order in which reserve clusters are used")
+  set("sample_type", "Sample = selected cluster; Reserve cluster = reserve cluster")
+  set("reserve_order", "Not used: units are chosen in the field")
   set("p_stage2", "interviews / (selection_hits x cluster size): the chance a unit is interviewed, per selection of its cluster")
   set("base_weight", "1 / p_incl, the weight of each interview in the cluster. Adjust for non-response before analysis.")
   rbind(notes, data.frame(
@@ -929,6 +951,13 @@ sampling_generator_server <- function(id, study_name = NULL) {
       shinyjs::toggle("cluster_list_method", condition = input$cluster_sampling_method == "cluster_list")
     })
 
+    # From a cluster list there is no unit buffer: reserves are whole clusters
+    observe({
+      list_mode <- input$sampling_method %in% c("cluster", "stratified_cluster") &&
+        identical(input$cluster_sampling_method, "cluster_list")
+      shinyjs::toggleState("buffer_percentage", condition = !list_mode)
+    })
+
     # Per-stratum allocation inputs (Neyman values or manual sizes), reset when the strata change
     observeEvent(list(uploaded_data(), input$strata_variable), {
       data <- uploaded_data()
@@ -997,6 +1026,9 @@ sampling_generator_server <- function(id, study_name = NULL) {
           spec$use_pps <- isTRUE(input$use_pps_cluster_list)
         }
         spec$cluster_method <- input$cluster_sampling_method
+        spec$reserve_clusters <- if (is.null(input$reserve_clusters) || is.na(input$reserve_clusters)) 0 else input$reserve_clusters
+        # From a cluster list, units are chosen in the field, so there is no unit buffer
+        if (spec$cluster_method == "cluster_list") spec$buffer_pct <- 0
       }
       spec
     }
@@ -1016,6 +1048,9 @@ sampling_generator_server <- function(id, study_name = NULL) {
         }
         if (is.null(spec$n_units) || is.na(spec$n_units) || spec$n_units <= 0) {
           return("Interviews per cluster must be a positive number!")
+        }
+        if (spec$reserve_clusters < 0 || spec$reserve_clusters != round(spec$reserve_clusters)) {
+          return("Reserve clusters must be a whole number, 0 or more.")
         }
       }
       NULL
@@ -1195,7 +1230,9 @@ sampling_generator_server <- function(id, study_name = NULL) {
 
         is_main <- sample_data$sample_type == "Sample"
         main_count <- sum(is_main)
-        buffer_count <- sum(!is_main)
+        buffer_count <- sum(sample_data$sample_type == "Buffer")
+        reserve_cluster_count <- length(unique(paste(sample_data$stratum, sample_data$cluster_id)[!is.na(sample_data$cluster_reserve_order)]))
+        reserve_text <- if (reserve_cluster_count > 0) paste0(reserve_cluster_count, " reserve cluster", if (reserve_cluster_count != 1) "s") else ""
         is_cluster <- spec$method %in% c("cluster", "stratified_cluster")
         # From a cluster list each row is a cluster: count interviews, and the
         # population is the clusters' total size
@@ -1208,11 +1245,12 @@ sampling_generator_server <- function(id, study_name = NULL) {
           total <- sum(size[named & size > 0], na.rm = TRUE)
           population_text <- if (total > 0) format(round(total), big.mark = ",") else paste(format(sum(named), big.mark = ","), "clusters")
           fraction_text <- if (total > 0) paste0(round(main_count / total * 100, 2), "%") else "-"
-          buffer_text <- paste0(buffer_count, " reserve cluster", if (buffer_count != 1) "s")
+          buffer_text <- if (nzchar(reserve_text)) reserve_text else "0 reserve clusters"
           sample_text <- paste0(main_count, " (", sum(is_main), " clusters)")
         } else {
           fraction_text <- paste0(round(main_count / nrow(data) * 100, 2), "%")
-          buffer_text <- paste0(buffer_count, " (", round(buffer_count / main_count * 100, 1), "%)")
+          buffer_text <- paste0(buffer_count, " (", round(buffer_count / main_count * 100, 1), "%)",
+                                if (nzchar(reserve_text)) paste0(" + ", reserve_text))
           sample_text <- as.character(main_count)
         }
 
@@ -1284,6 +1322,7 @@ sampling_generator_server <- function(id, study_name = NULL) {
         c("Cluster population variable", if (is_cluster) or_blank(spec$pop_var) else ""),
         c("Cluster selection", if (is_cluster) (if (isTRUE(spec$use_pps)) "PPS with replacement" else "Equal probability without replacement") else ""),
         c("Interviews per cluster (m)", if (is_cluster) or_blank(spec$n_units) else ""),
+        c("Reserve clusters requested", if (is_cluster) paste0(or_blank(spec$reserve_clusters), if (is_strat) " per stratum") else ""),
         c("Frame sorted by", or_blank(spec$sort_var)),
         c("Unit ID variable", or_blank(spec$id_var)),
         c("Requested sample size", or_blank(spec$sample_size)),
@@ -1297,10 +1336,13 @@ sampling_generator_server <- function(id, study_name = NULL) {
         rows[[length(rows) + 1]] <- c(paste0("  Excluded: ", check$exclusions$reason[i]), or_blank(check$exclusions$rows[i]))
       }
       weight_sum <- sum(sample_data$base_weight[main] * units[main])
+      in_reserve <- !is.na(sample_data$cluster_reserve_order)
       rows <- c(rows, list(
         c("Clusters selected", if (cluster_list) or_blank(sum(main)) else ""),
         c("Main sample drawn", or_blank(sum(units[main]))),
-        c(if (cluster_list) "Reserve clusters drawn" else "Buffer units drawn", or_blank(sum(!main))),
+        c("Buffer units drawn", if (cluster_list) "" else or_blank(sum(sample_data$sample_type == "Buffer"))),
+        c("Reserve clusters drawn", if (is_cluster) or_blank(length(unique(paste(sample_data$stratum, sample_data$cluster_id)[in_reserve]))) else ""),
+        c("Units drawn in reserve clusters", if (is_cluster && !cluster_list) or_blank(sum(in_reserve)) else ""),
         c("Sum of base weights (main sample)", if (is.na(weight_sum)) "Not available until the selected clusters are listed" else or_blank(round(weight_sum, 1))),
         c("Generated at", format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")),
         c("App version", app_version()),
