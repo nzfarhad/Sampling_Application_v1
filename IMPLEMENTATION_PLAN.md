@@ -16,7 +16,7 @@
 |---|---|---|
 | D1 | Should stratified and stratified-cluster generation be built now? | **Build both now** (Phase 2). |
 | D2 | Where will the app run when users upload beneficiary lists? | **Stay on shinyapps.io.** Add a warning and require anonymised IDs only (1.3, 5.3.1). |
-| D3 | Which evaluation designs are in the first release? | **Two proportions, MDE mode, and panel/DiD.** Two means is out of scope for now. |
+| D3 | Which evaluation designs are in the first release? | **Two proportions, MDE mode, and panel/DiD.** Two means is out of scope for now. **Revised 2026-10-16:** extended in Phase 6 to means, ANCOVA, multiple indicators, subgroups, design-effect inputs and TPM field adjustments. Estimating ICC/SD/ρ from an uploaded dataset is excluded. |
 | D4 | Should LQAS be included? | **No.** Removed from the plan. |
 | D5 | Should the wiki reference pages be kept? | **Removed**, except `Resources.md` (done, see 4.4). |
 | D6 | Is there a target date? | **No fixed date.** Work through the phases in order. |
@@ -293,6 +293,167 @@ Implementation notes:
 - **Field guidance pages (5.2):** three new pages under a new "Field Guidance" wiki section: `site_verification_sampling.md`, `phone_remote_monitoring.md` and `replacement_protocol.md`. The worked numbers were checked in R, and the Replacement Log column list matches the generator export.
 - **Hosting (5.3.1):** the upload limit is now 30 MB, and the user guide says so. Load test with a synthetic 29.3 MB CSV (330,000 rows) and a stratified cluster design: frame checks, the draw and the Excel export took 4.7 s, with about 300 MB peak R memory. Weights summed to exactly 330,000. On shinyapps.io, keep the instance at 1 GB or more.
 - **Version (5.3.2):** shown in the app footer, in the Methodology sheet, in the calculator Excel and PDF exports, and in the decision-tree PDF. Consider bumping `VERSION` from 1.1.0 for this release.
+
+---
+
+## Phase 6 — Evaluation calculator for M&E and TPM work
+
+**Goal:** close the gaps in D3 (revised 2026-10-16), so the Evaluation Calculator can size the evaluations and PDM comparisons ATR actually runs. All formulas go in `sample_size_functions.R`, with no Shiny code, and each one gets a testthat test.
+
+**Why:**
+- Most PDM and evaluation outcomes are means (FCS, rCSI, HDDS, income, spending, yield).
+- Evaluations have several key indicators, and donors want results by subgroup.
+- Panel DiD as built can overstate the sample.
+- Access problems and small programmes are routine in Afghanistan.
+
+**Excluded:** estimating ICC, SD and ρ from an uploaded dataset (review item 6). Users still enter these values, using the guidance in 6.10.
+
+### 6a. Core extensions (first step)
+
+- [ ] **6.1 Means for every design (M).**
+  - Add an outcome type (proportion or mean) to all four designs.
+  - For means, the variance per group is SD² in place of p(1−p). Inputs: the SD, and the baseline mean or the change.
+  - Optional standardised effect size (Cohen's d), for when the SD is unknown. Show the d that the inputs imply in every case.
+  - Panel and DiD for means use ρ exactly as for proportions.
+  - MDE mode returns the difference in outcome units and as d.
+- [ ] **6.2 ANCOVA for panel data (S).**
+  - Add "Panel, endline comparison controlling for baseline (ANCOVA)" as a design. Variance factor (1−ρ²), against 2(1−ρ) for panel DiD and 1 for an endline-only comparison (McKenzie 2012).
+  - When panel DiD is selected and ρ < 0.5, show a note: an endline-only or ANCOVA analysis needs a smaller sample, with the two sample sizes side by side.
+  - Guidance on choosing ρ, with typical values of 0.2–0.5 for household survey outcomes. Default 0.3 for ANCOVA, still adjustable.
+- [ ] **6.3 Several key indicators (M).**
+  - A table with one row per indicator: name, type (proportion or mean), baseline value, SD (for means), detectable difference, and ICC (optional, per indicator).
+  - The calculator sizes each indicator under the same design and uses the largest. The result names the indicator that drives the sample.
+  - Optional Bonferroni correction (α divided by the number of indicators tested), off by default and explained in the guide.
+  - MDE mode returns the MDE of every indicator for the fixed sample.
+- [ ] **6.4 Subgroups (M).**
+  - Optional subgroups for separate results, e.g. female-headed households or provinces. Inputs: the subgroup name and its expected share of the sample, or a fixed sample per subgroup.
+  - Two goals, chosen by the user:
+    - detect the difference within each subgroup: the total is the largest of n ÷ share;
+    - report the overall result only: the MDE for each subgroup is shown, as information.
+  - Warn when a subgroup share is so small that the total is several times the overall requirement, and suggest oversampling that subgroup (with weights) instead.
+- [ ] **6.5 Design effect inputs (M).**
+  - Choose how the DEFF is set:
+    - ICC and m (current);
+    - a known DEFF from an earlier survey;
+    - ICC, mean cluster size and the CV of cluster sizes: 1 + ((CV² + 1)·m̄ − 1)·ICC.
+  - Optional weighting effect (Kish): DEFF_w = 1 + CV² of the weights, multiplied with the clustering DEFF. Explain that the Sample Generator weights give this CV.
+  - The steps table shows each part of the DEFF separately.
+- [ ] **6.6 TPM field adjustments (M).**
+  - **Inaccessible clusters:** an "expected inaccessible clusters (%)" input, separate from non-response. Clusters = ceiling(clusters needed ÷ (1 − share)). Link to the replacement protocol page.
+  - **Few clusters:** when there are fewer than 20 clusters per arm, use t-values with the cluster-level degrees of freedom in place of z, and say so in the steps.
+  - **Small programmes:** an optional population size per group. Apply the finite population correction, and warn when the sample is more than half of the population (a census may be simpler).
+  - **Matched comparisons (PSM):** an optional inflation factor for units lost outside common support (guidance: 1.2–1.5). Off by default, with a note on when it applies.
+- [ ] **6.7 Relative change and rare outcomes (S).**
+  - A toggle to state the change as absolute (points) or relative (% of baseline, e.g. "reduce stunting by 20%"). The result shows both.
+  - When a proportion is below 0.10 or above 0.90, use Cohen's h (arcsine), as `pwr` does, or show a warning that the normal approximation is weak. Decide which during implementation and record the choice here.
+
+### 6b. Second step
+
+- [ ] **6.8 Report text and PDF (M).**
+  - Generate a short methods paragraph for inception reports: design, indicator(s), every assumption and its value, the DEFF, adjustments and the final sample. Copy button in the app, and included in the downloads.
+  - Add a PDF download, matching the Sample Calculator PDF (with the version, as in 5.3.2).
+- [ ] **6.9 More than two arms (M).**
+  - E.g. cash, in-kind and control. Input: the number of arms and the comparisons of interest (each arm against control, or all pairs).
+  - n per arm for each comparison, with the multiple-comparison correction from 6.3. Extend the groups table and the Excel export.
+
+### 6c. Tests, documentation and checks
+
+- [ ] **6.10 Tests and documentation (M).**
+  - Regression: the 3a.6 case must not change (310 → DEFF 1.5 → 78 clusters → 468 per group).
+  - Means: check against `pwr::pwr.t2n.test` / `pwr.t.test` (via d) and the closed-form z formula for at least three cases. Panel and ANCOVA checked against the variance factors in 6.2 by hand.
+  - Multiple indicators: the result equals the largest single-indicator result. Subgroups: the total equals the largest n ÷ share.
+  - DEFF: the three entry methods give the same DEFF when CV = 0. Kish DEFF checked on Sample Generator weights.
+  - Field adjustments: FPC, inaccessible clusters and t-values checked on worked examples.
+  - Update `guide_content/evaluation_calculator.md` and the Sampling Guideline: means, ANCOVA and when to use it, choosing ρ and the SD, subgroups and multiple indicators.
+  - Extend `tests/playwright/ui-check.mjs` to run a mean scenario and a multiple-indicator scenario.
+
+---
+
+## Phase 7 — Decision Tree redesign
+
+**Goal:** turn the Decision Tree into the starting point of a TPM study. It should give one design the team can act on, explain why, and hand the settings to the calculators and the generator. Review of 2026-10-16.
+
+**Problems with the current tree:**
+- **No study purpose.** Monitoring, evaluation, verification and qualitative work need different designs. There is no evaluation path and no link to the Evaluation Calculator.
+- **No unit of analysis.** Households, beneficiary lists and sites are treated alike. Site verification only appears through "Few enough to visit all of them".
+- **Unclear or arbitrary questions.** "Generalization required" and "Sub-group comparison required" are jargon. The 70-village cut-off has no basis. Constraints are a single choice, though several usually apply. Subgroups are not named, so strata cannot be suggested.
+- **Output is not actionable.** Only method names with textbook pros and cons. No stages, no reasons linked to the answers, and no next step.
+- **Missing field methods:**
+  - random walk or segmentation when there is no household list;
+  - choosing the respondent within a household, including female respondents;
+  - mixed phone and in-person designs;
+  - panel follow-up;
+  - choosing a comparison group;
+  - qualitative sampling alongside a survey;
+  - respondent-driven sampling or building a list first, for hidden groups.
+- **Stale results (bug).** Results only update on "Analyze Requirements", so the screen and PDF can show an old recommendation next to new answers. Fixed in 7.0.
+
+### 7a. Fix now
+
+- [x] **7.0 Stale results (S).** Once shown, the recommendation updates whenever an answer changes. The PDF is always built from the current answers. Test added. Done 2026-10-16.
+
+### 7b. New questions and rules
+
+- [ ] **7.1 Question set (M).** Plain language, and each question is shown only when it applies:
+
+  | # | Question | Answers |
+  |---|---|---|
+  | 1 | What is the study for? | Measure a level (PDM, coverage, satisfaction) / Measure change or impact / Verify sites, sub-projects or beneficiaries / Understand why or how (qualitative) / Pilot or tool test |
+  | 2 | What are you sampling? | Households or people / People on a beneficiary list / Sites, facilities or sub-projects / Key informants |
+  | 3 | What list do you have? | Full list of units with location / List of villages or sites only, with or without population sizes / No list / A group that cannot be listed |
+  | 4 | What must results be reported for? (multi-select) | Overall only / Province or district / Gender / Programme component / Other (named) |
+  | 5 | How spread out are the units? | A few sites, all reachable / Many villages across districts |
+  | 6 | How will you interview? | In person / Phone / Phone, with in-person visits for people without a phone |
+  | 7 | What constraints apply? (multi-select) | Insecure or inaccessible areas / Limits on reaching women / Tight budget or time |
+  | 8 | *Evaluation only:* how is the comparison set up? | Before/after only / Treatment and comparison groups. Then: same households followed, or new households each round. Then: random assignment or not. |
+
+- [ ] **7.2 Rules as a table (M).**
+  - Move the logic from nested `if` statements into a readable rule table: conditions → design, reasons, alternatives and warnings.
+  - Keep it free of Shiny code, as for the other function files.
+  - Designs to cover:
+    - SRS / systematic
+    - stratified
+    - cluster and stratified cluster (PPS at stage 1)
+    - all sites with a sample within each
+    - segmentation or random walk at stage 2
+    - phone list sample
+    - RDD (with the Afghanistan caveat)
+    - mixed phone and in-person
+    - evaluation designs (before/after, treatment vs comparison, panel, DiD)
+    - site verification (census of sites, or a random/PPS sample of sites)
+    - purposive, quota and snowball
+    - respondent-driven sampling (as an option for hidden groups)
+  - LQAS stays out (D4).
+- [ ] **7.3 Method content (S).** Rewrite `SAMPLING_METHODS` for ATR's work: when to use each method, what list it needs, and common field problems. Drop the generic pros and cons that are already in the Sampling Guideline, and link to the guideline article instead.
+
+### 7c. Output
+
+- [ ] **7.4 One design you can act on (M).** The result shows:
+  - **Recommended design** with each stage spelled out, e.g. "Stratified two-stage cluster sample. Strata: provinces. Stage 1: villages by PPS using beneficiary counts. Stage 2: households systematically from the list. Draw 10% reserves."
+  - **Why:** one line per answer that drove the choice.
+  - **Alternatives, and when to switch**, e.g. "If there is no household list in the selected villages, use segmentation or random walk."
+  - **Warnings:** coverage gaps (incomplete list, phone-only), limits on generalising, insecure areas (reserve clusters, no silent replacement), reaching women (female enumerators, choosing the respondent in the household).
+  - **Field protocol links** to the guideline pages: replacement protocol, phone call-back rules, site verification.
+- [ ] **7.5 Hand-over to other tabs (M).**
+  - A "Calculate sample size" button opens the Sample Calculator or the Evaluation Calculator (chosen by the study purpose), with the design and a suggested DEFF filled in.
+  - A "Draw the sample" button opens the Sample Generator with the method set, and the strata noted from question 4.
+  - The values filled in can still be changed. The receiving tab says where they came from.
+- [ ] **7.6 PDF (S).** Includes the answers, the design, the reasons, alternatives, warnings and next steps. It is always built from the current answers (as in 7.0), and shows the version.
+
+### 7d. Tests and documentation
+
+- [ ] **7.7 Tests and documentation (M).**
+  - Every answer combination gives exactly one recommended design, and a known one. Questions that do not apply are ignored.
+  - Rules: a list of named scenarios with the expected design, e.g.
+    - wheat PDM (beneficiary list, many villages, reported by province) → stratified cluster, PPS;
+    - site verification of 40 sub-projects → census of sites;
+    - baseline/endline with a comparison group and the same households → panel, linked to the Evaluation Calculator;
+    - phone survey without a list → RDD, with the Afghanistan caveat;
+    - KIIs → purposive.
+  - Without random selection there is never a probability design, and never a margin of error.
+  - Hand-over: `testServer` checks that the calculator and generator inputs are set.
+  - Update `guide_content/decision_tree.md` and the Playwright check (an evaluation scenario and the hand-over buttons).
+
 ---
 
 ## Suggested order and rough effort
@@ -304,6 +465,8 @@ Implementation notes:
 | 3 | Evaluation (two proportions, MDE, panel/DiD) and monitoring calculators | ~5–7 days | Adds evaluation support |
 | 4 | Decision tree, wiki, guide, README | ~4–5 days | — |
 | 5 | Tests and TPM content | ~5–7 days | — |
+| 6 | Evaluation calculator: means, ANCOVA, several indicators, subgroups, DEFF inputs, field adjustments (6a); report text and multi-arm (6b) | ~8–11 days (6a ~6–8) | Adds full M&E/TPM evaluation support |
+| 7 | Decision Tree redesign: purpose-led questions, rule table, actionable design, hand-over to calculators and generator | ~5–7 days | Makes the tree the starting point of a study |
 
 There is no fixed date (D6), so the phases run in order. The estimates assume one R/Shiny developer. Phase 5.1 tests should be written alongside Phases 1–3 rather than at the end.
 
@@ -312,4 +475,4 @@ There is no fixed date (D6), so the phases run in order. The estimates assume on
 ## Notes and open questions
 
 - D9 answered 2026-10-15: core field pages only.
-- Two means (evaluation) is out of scope for the first release. Revisit after Phase 3.
+- Two means (evaluation) was out of scope for the first release. D3 was revised on 2026-10-16: means and the other extensions are in Phase 6. Estimating ICC/SD/ρ from an uploaded dataset is excluded.
